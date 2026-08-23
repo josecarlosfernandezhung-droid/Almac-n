@@ -47,6 +47,33 @@ sin tocar nada de la lógica de negocio ni el diseño:
    problema que tuviste con "Arqueó Stock"), así que todos los `onclick` del
    HTML siguen encontrando sus funciones sin problema.
 
+4. **La barra de estado tapaba el encabezado y aparecía una franja negra al
+   lado.** Las apps nuevas de Capacitor en Android 15 usan "edge-to-edge" por
+   defecto: el WebView se dibuja detrás de la barra de estado en vez de
+   respetar su espacio, y en algunos teléfonos eso también desalinea el
+   ancho del contenido (la franja negra que viste a la izquierda). Se agregó
+   el plugin `@capacitor/status-bar` configurado en `capacitor.config.json`
+   para que la barra de estado tenga su propio espacio reservado (como
+   siempre debió ser), más un respaldo en CSS (`env(safe-area-inset-*)`) y
+   en JS por si algún dispositivo puntual no toma la configuración nativa.
+   En un navegador normal esto no cambia nada visualmente.
+
+5. **Ese mismo corte seguía apareciendo solo en la pestaña Historial.** Se
+   reforzó con `overflow-x: hidden` también en `<html>` (antes solo estaba en
+   `<body>`) y con `max-width: 100%` en el contenedor de la tabla, para que
+   una tabla ancha se desplace solo ella misma en vez de empujar toda la
+   página.
+
+6. **Rotación automática a horizontal en Búsqueda, Reportes e Historial.**
+   Esas 3 pestañas tienen tablas con varias columnas que se leen mejor en
+   horizontal. Se agregó el plugin `@capacitor/screen-orientation`: al entrar
+   a cualquiera de esas 3 pestañas, el teléfono gira solo a horizontal
+   (sin importar si el usuario tiene la rotación automática desactivada en
+   los ajustes del sistema — el bloqueo por app funciona igual), y al pasar
+   a cualquier otra pestaña vuelve solo a vertical. En el navegador normal
+   esto no hace nada; la rotación la sigue controlando el usuario como
+   siempre.
+
 ## Limitación conocida (no se tocó, a propósito)
 
 El botón de generar **PDF por impresión** (`window.open('', '_blank')` para
@@ -60,6 +87,16 @@ teléfono o en una PC). Si más adelante quieres esa función también dentro
 del APK, se puede resolver con el plugin `@capacitor/share` compartiendo el
 HTML como texto, pero no lo agregué ahora para no sumar una dependencia
 nueva sin que la pidas primero.
+
+## Ícono de la app
+
+Se usó la imagen que enviaste (`resources/icon.png`, recortada a cuadrado y
+sin el ícono de lupa de la esquina) como ícono de la app. Cada vez que
+Actions compila, genera automáticamente todos los tamaños que pide Android
+(incluyendo el ícono adaptativo redondo/cuadrado de Android 8+) a partir de
+esa sola imagen — no hace falta subir varios tamaños a mano. Si más adelante
+quieres cambiarlo, solo reemplaza `resources/icon.png` por otra imagen
+cuadrada (idealmente 1024×1024) y vuelve a compilar.
 
 ## Chart.js y el import de Excel siguen necesitando internet
 
