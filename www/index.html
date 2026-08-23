@@ -2108,10 +2108,12 @@
                 console.warn('No se pudo ajustar la barra de estado:', e);
             }
         }
-        ajustarOrientacionPorTab('dashboard'); // pestaña inicial: fuerza vertical al abrir la app
+        ajustarOrientacionPorTab('dashboard'); // pestaña inicial: deja la rotación libre según el sistema
 
         // Gira la pantalla a horizontal automáticamente en las pestañas con tablas
-        // anchas (Búsqueda, Reportes, Historial), y la devuelve a vertical en el resto.
+        // anchas (Búsqueda, Reportes, Historial). En el resto de pestañas NO se fuerza
+        // vertical: se libera el bloqueo para que el teléfono gire libremente según el
+        // ajuste de rotación automática del propio sistema, como en cualquier otra app.
         // Solo actúa dentro de la app compilada (APK); en el navegador no hace nada.
         async function ajustarOrientacionPorTab(tabName) {
             if (!(window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.ScreenOrientation)) {
@@ -2122,11 +2124,23 @@
                 if (tabsHorizontal.includes(tabName)) {
                     await window.Capacitor.Plugins.ScreenOrientation.lock({ orientation: 'landscape' });
                 } else {
-                    await window.Capacitor.Plugins.ScreenOrientation.lock({ orientation: 'portrait' });
+                    await window.Capacitor.Plugins.ScreenOrientation.unlock();
                 }
             } catch (e) {
                 console.warn('No se pudo ajustar la orientación de pantalla:', e);
             }
+
+            // Al pedir el giro por código (en vez de que el usuario mueva el teléfono),
+            // el WebView a veces tarda un instante en recalcular el ancho real de la
+            // pantalla, y el contenido se queda un momento con las medidas de la
+            // orientación anterior (se ve cortado o desbordado). Este forzado de
+            // "reflow" tras un pequeño margen corrige esa medida quedada vieja.
+            setTimeout(() => {
+                document.body.style.display = 'none';
+                void document.body.offsetHeight; // fuerza al navegador a recalcular el layout ahora
+                document.body.style.display = '';
+                window.dispatchEvent(new Event('resize')); // avisa a las gráficas (Chart.js) para que también se re-ajusten
+            }, 350);
         }
 
         // INICIALIZACIÓN
