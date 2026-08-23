@@ -69,10 +69,20 @@ sin tocar nada de la lógica de negocio ni el diseño:
    horizontal. Se agregó el plugin `@capacitor/screen-orientation`: al entrar
    a cualquiera de esas 3 pestañas, el teléfono gira solo a horizontal
    (sin importar si el usuario tiene la rotación automática desactivada en
-   los ajustes del sistema — el bloqueo por app funciona igual), y al pasar
-   a cualquier otra pestaña vuelve solo a vertical. En el navegador normal
-   esto no hace nada; la rotación la sigue controlando el usuario como
-   siempre.
+   los ajustes del sistema — el bloqueo por app funciona igual). En el resto
+   de pestañas **no se fuerza vertical**: se libera el bloqueo para que el
+   teléfono gire libremente según tu propio ajuste de rotación automática,
+   igual que en cualquier otra app. En el navegador normal esto no hace
+   nada; la rotación la sigue controlando el usuario como siempre.
+
+7. **El contenido se veía cortado justo al volver de una pestaña horizontal
+   a una vertical.** Cuando el giro se pide por código (en vez de que el
+   usuario mueva el teléfono físicamente), el WebView a veces tarda un
+   instante en recalcular el ancho real de la pantalla, y el contenido se
+   queda un momento con las medidas de la orientación anterior — se ve
+   cortado a la derecha, como si la pantalla no hubiera terminado de
+   achicarse. Se agregó un pequeño margen de espera más un "forzado de
+   layout" que corrige esa medida vieja apenas termina el giro.
 
 ## Limitación conocida (no se tocó, a propósito)
 
@@ -98,10 +108,16 @@ esa sola imagen — no hace falta subir varios tamaños a mano. Si más adelante
 quieres cambiarlo, solo reemplaza `resources/icon.png` por otra imagen
 cuadrada (idealmente 1024×1024) y vuelve a compilar.
 
-## Chart.js y el import de Excel siguen necesitando internet
+## Excel (importar) y gráficas ahora funcionan sin conexión dentro del APK
 
-Igual que en el navegador, las gráficas (Chart.js) y la importación de Excel
-(librería xlsx) se cargan desde CDN solo cuando hacen falta, y la app ya
-avisa si no hay conexión — eso no cambió, y se comporta igual dentro del
-APK: sin internet, todo lo demás (catálogo, stock, WhatsApp de texto,
-respaldos) sigue funcionando 100% offline.
+Antes, tanto el lector de Excel (SheetJS) como las gráficas (Chart.js) se
+cargaban desde un CDN (`cdnjs.cloudflare.com`) en el momento de usarlos. Si
+ese dominio no es accesible sin VPN (como te pasa con Firebase/Google),
+salía el aviso de "No se pudo cargar el lector de Excel". Ahora el workflow
+descarga ambas librerías durante la compilación en GitHub (ahí sí hay
+internet garantizado) y las deja empaquetadas dentro del propio APK, en
+`www/vendor/`. La app las busca ahí primero, y solo si no las encuentra
+(por ejemplo, si abres el `index.html` suelto en un navegador de escritorio)
+intenta bajarlas del CDN como respaldo. Resultado: importar Excel y ver las
+gráficas del Dashboard funciona 100% offline dentro del APK, sin depender
+de VPN ni de que `cdnjs.cloudflare.com` esté accesible en ese momento.
