@@ -1507,15 +1507,31 @@
                         <label class="upload-zone" for="inputArchivoExcel">
                             <div class="upload-zone-icon">📤</div>
                             <div class="upload-zone-title">Toca para cargar</div>
-                            <div class="upload-zone-desc">Archivo Excel (.xlsx, .xls) con el encabezado en la primera fila</div>
+                            <div class="upload-zone-desc">Archivo Excel (.xlsx, .xls). No hace falta que los títulos estén en la primera fila — en el siguiente paso puedes indicar en cuál están.</div>
                             <div class="upload-zone-filename" id="nombreArchivoExcelElegido"></div>
                         </label>
                         <input type="file" id="inputArchivoExcel" accept=".xlsx,.xls" onchange="manejarArchivoExcelSeleccionado(this)" style="display:none;">
                         <div id="mensajeImportarExcel" style="margin-top: 12px;"></div>
                     </div>
 
+                    <div id="pasoFilaEncabezadoExcel" style="display:none;">
+                        <p style="font-size: 13px; color: #444; margin-bottom: 10px;">Esta es una vista previa de tu archivo, tal como viene (con el número de fila de la izquierda, igual que en Excel). Indícale a la app en cuál fila están los títulos de las columnas (Nombre, Código, Cantidad...):</p>
+                        <div class="excel-preview-wrap" style="max-height: 260px; overflow-y: auto;">
+                            <table class="excel-preview-table" id="tablaVistaPreviaExcel"></table>
+                        </div>
+                        <div class="form-group" style="margin-top: 14px;">
+                            <label>Número de fila con los títulos de columna</label>
+                            <input type="number" id="filaEncabezadoExcel" min="1" value="1">
+                        </div>
+                        <div id="mensajeFilaEncabezadoExcel"></div>
+                        <div class="button-group" style="margin-top: 10px;">
+                            <button type="button" class="btn btn-primary" onclick="confirmarFilaEncabezadoExcel()">Continuar ➡️</button>
+                            <button type="button" class="btn btn-secondary" onclick="cerrarImportadorExcel()">Cancelar</button>
+                        </div>
+                    </div>
+
                     <div id="pasoMapeoColumnasExcel" style="display:none;">
-                        <p style="font-size: 13px; color: #444; margin-bottom: 6px;">Así se ven las primeras filas de tu archivo (fila 1 = encabezado, la fila 2 es donde empiezan tus datos):</p>
+                        <p style="font-size: 13px; color: #444; margin-bottom: 6px;">Así se ven las primeras filas de tu archivo:</p>
                         <div id="vistaPreviaExcel" class="excel-preview-wrap"></div>
 
                         <p style="font-size: 13px; color: #444; margin-bottom: 10px;">Dile a la app qué columna corresponde a cada dato (por letra, igual que en Excel):</p>
@@ -1523,6 +1539,7 @@
                         <p style="font-size: 12px; color: #999; margin: 10px 0;"><span id="conteoFilasExcel"></span></p>
                         <div id="mensajeMapeoExcel"></div>
                         <div class="button-group" style="margin-top: 15px;">
+                            <button type="button" class="btn btn-secondary" onclick="volverAPasoFilaEncabezado()">⬅️ Atrás</button>
                             <button type="button" class="btn btn-primary" onclick="confirmarImportacionExcel()">✅ Importar</button>
                             <button type="button" class="btn btn-secondary" onclick="cerrarImportadorExcel()">Cancelar</button>
                         </div>
@@ -4394,19 +4411,21 @@
         // IMPORTAR EXCEL (con mapeo de columnas) — usado tanto para
         // agregar productos como para comparar Piso de Venta vs Almacén
         // ============================================================
-        let importExcelState = { modo: null, headers: [], filas: [] };
+        let importExcelState = { modo: null, filasCrudas: [], filaEncabezado: 1, headers: [], filas: [] };
 
         function escaparHtmlSimple(texto) {
             return String(texto).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
         function abrirImportadorExcel(modo) {
-            importExcelState = { modo, headers: [], filas: [] };
+            importExcelState = { modo, filasCrudas: [], filaEncabezado: 1, headers: [], filas: [] };
             document.getElementById('inputArchivoExcel').value = '';
             document.getElementById('nombreArchivoExcelElegido').textContent = '';
             document.getElementById('pasoSeleccionArchivoExcel').style.display = 'block';
+            document.getElementById('pasoFilaEncabezadoExcel').style.display = 'none';
             document.getElementById('pasoMapeoColumnasExcel').style.display = 'none';
             document.getElementById('mensajeImportarExcel').innerHTML = '';
+            document.getElementById('mensajeFilaEncabezadoExcel').innerHTML = '';
             document.getElementById('mensajeMapeoExcel').innerHTML = '';
 
             const titulo = document.getElementById('tituloModalImportarExcel');
@@ -4426,7 +4445,7 @@
         function cerrarImportadorExcel() {
             document.getElementById('modalImportarExcel').style.display = 'none';
             document.body.style.overflow = 'auto';
-            importExcelState = { modo: null, headers: [], filas: [] };
+            importExcelState = { modo: null, filasCrudas: [], filaEncabezado: 1, headers: [], filas: [] };
         }
 
         function manejarArchivoExcelSeleccionado(input) {
@@ -4450,17 +4469,16 @@
                         const wb = XLSX.read(data, { type: 'array' });
                         const primeraHoja = wb.SheetNames[0];
                         const ws = wb.Sheets[primeraHoja];
-                        const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false });
-                        if(!filas || filas.length < 2) {
+                        // Ojo: NO se descartan las filas en blanco aquí (blankrows por defecto),
+                        // así el número de fila que ve el usuario coincide exactamente con el de su Excel.
+                        const filasCrudas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                        if(!filasCrudas || filasCrudas.length < 2) {
                             msg.innerHTML = '<div class="alert alert-error">⚠️ El archivo no tiene filas de datos (solo encabezado o está vacío).</div>';
                             return;
                         }
-                        const headers = filas[0].map(h => String(h).trim());
-                        const datos = filas.slice(1);
-                        importExcelState.headers = headers;
-                        importExcelState.filas = datos;
+                        importExcelState.filasCrudas = filasCrudas;
                         msg.innerHTML = '';
-                        mostrarPasoMapeo();
+                        mostrarPasoFilaEncabezado();
                     } catch(err) {
                         msg.innerHTML = '<div class="alert alert-error">⚠️ No se pudo leer el archivo. ¿Es un .xlsx o .xls válido?</div>';
                     }
@@ -4470,6 +4488,81 @@
                 };
                 reader.readAsArrayBuffer(file);
             });
+        }
+
+        // Intenta adivinar en qué fila están los títulos de columna: busca, entre las
+        // primeras 15 filas, la primera fila con varias celdas de texto (no numéricas)
+        // seguida de una fila con datos. Si no está segura, usa la fila 1.
+        function adivinarFilaEncabezadoExcel(filasCrudas) {
+            const limite = Math.min(15, filasCrudas.length - 1);
+            for(let i = 0; i < limite; i++) {
+                const fila = filasCrudas[i];
+                const siguiente = filasCrudas[i + 1];
+                if(!fila || !siguiente) continue;
+                const celdasTexto = fila.filter(c => String(c).trim() !== '' && isNaN(parseFloat(c))).length;
+                const siguienteTieneDatos = siguiente.some(c => String(c).trim() !== '');
+                if(celdasTexto >= 2 && siguienteTieneDatos) return i + 1;
+            }
+            return 1;
+        }
+
+        function mostrarPasoFilaEncabezado() {
+            document.getElementById('pasoSeleccionArchivoExcel').style.display = 'none';
+            document.getElementById('pasoFilaEncabezadoExcel').style.display = 'block';
+
+            const filasCrudas = importExcelState.filasCrudas;
+
+            // Recuerda la fila de títulos que usaste la última vez para este mismo tipo de importación
+            const recordada = parseInt(localStorage.getItem(`filaEncabezadoRecordada_${importExcelState.modo}`));
+            const sugerida = (recordada && recordada >= 1 && recordada <= filasCrudas.length)
+                ? recordada
+                : adivinarFilaEncabezadoExcel(filasCrudas);
+            document.getElementById('filaEncabezadoExcel').max = filasCrudas.length;
+            document.getElementById('filaEncabezadoExcel').value = sugerida;
+
+            const filasVista = filasCrudas.slice(0, 12);
+            const anchoMax = Math.max(...filasVista.map(f => f.length), 1);
+            let html = '<thead><tr><th></th>' +
+                Array.from({length: anchoMax}, (_, i) => `<th><span class="col-letra">${letraColumnaExcel(i)}</span></th>`).join('') +
+                '</tr></thead><tbody>';
+            filasVista.forEach((fila, i) => {
+                html += `<tr><td class="fila-num">${i + 1}</td>` +
+                    Array.from({length: anchoMax}, (_, c) => `<td>${escaparHtmlSimple(fila[c] !== undefined ? fila[c] : '')}</td>`).join('') +
+                    '</tr>';
+            });
+            html += '</tbody>';
+            document.getElementById('tablaVistaPreviaExcel').innerHTML = html;
+            document.getElementById('mensajeFilaEncabezadoExcel').innerHTML = '';
+        }
+
+        function volverAPasoFilaEncabezado() {
+            document.getElementById('pasoMapeoColumnasExcel').style.display = 'none';
+            document.getElementById('pasoFilaEncabezadoExcel').style.display = 'block';
+        }
+
+        function confirmarFilaEncabezadoExcel() {
+            const filasCrudas = importExcelState.filasCrudas;
+            const numFila = parseInt(document.getElementById('filaEncabezadoExcel').value);
+
+            if(!numFila || numFila < 1 || numFila > filasCrudas.length) {
+                document.getElementById('mensajeFilaEncabezadoExcel').innerHTML = `<div class="alert alert-error">Indica un número de fila entre 1 y ${filasCrudas.length}.</div>`;
+                return;
+            }
+
+            const headers = filasCrudas[numFila - 1].map(h => String(h).trim());
+            const datos = filasCrudas.slice(numFila).filter(fila => fila.some(c => String(c).trim() !== ''));
+
+            if(datos.length === 0) {
+                document.getElementById('mensajeFilaEncabezadoExcel').innerHTML = '<div class="alert alert-error">No hay filas con datos después de esa fila. Revisa el número.</div>';
+                return;
+            }
+
+            importExcelState.filaEncabezado = numFila;
+            importExcelState.headers = headers;
+            importExcelState.filas = datos;
+            localStorage.setItem(`filaEncabezadoRecordada_${importExcelState.modo}`, String(numFila));
+
+            mostrarPasoMapeo();
         }
 
         function definirCamposMapeoExcel(modo) {
@@ -4525,8 +4618,8 @@
                     const val = fila[i] !== undefined && fila[i] !== '' ? escaparHtmlSimple(fila[i]) : '<span style="color:#ccc;">—</span>';
                     return `<td>${val}</td>`;
                 }).join('');
-                // La fila 1 del Excel es el encabezado, así que los datos empiezan en la fila 2
-                filasHtml += `<tr><td class="fila-num">Fila ${f + 2}</td>${celdas}</tr>`;
+                // Los datos empiezan justo después de la fila de títulos que el usuario indicó
+                filasHtml += `<tr><td class="fila-num">Fila ${importExcelState.filaEncabezado + 1 + f}</td>${celdas}</tr>`;
             }
 
             cont.innerHTML = `
@@ -4538,7 +4631,7 @@
         }
 
         function mostrarPasoMapeo() {
-            document.getElementById('pasoSeleccionArchivoExcel').style.display = 'none';
+            document.getElementById('pasoFilaEncabezadoExcel').style.display = 'none';
             document.getElementById('pasoMapeoColumnasExcel').style.display = 'block';
 
             const headers = importExcelState.headers;
