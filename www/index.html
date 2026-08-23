@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Gestor de Inventario Avanzado</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js" defer></script>
     <!-- Firebase ya NO se carga aquí en el head (bloqueaba la página si no había buena conexión). Se carga dinámicamente solo cuando hace falta, ver función cargarSDKFirebase() más abajo. -->
@@ -13,11 +13,23 @@
             box-sizing: border-box;
         }
 
+        html {
+            overflow-x: hidden; /* refuerzo: algunos WebView propagan el ancho de una tabla interna hacia la página completa si solo el body está protegido */
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 10px;
+            /* Respaldo por si algún dispositivo dibuja la app debajo de la barra de
+               estado o de zonas con esquinas/cámara (notch): en esos casos, esto empuja
+               el contenido para que no quede tapado. En un teléfono normal estos valores
+               son 0, así que no cambia nada. */
+            padding-top: max(10px, env(safe-area-inset-top));
+            padding-left: max(10px, env(safe-area-inset-left));
+            padding-right: max(10px, env(safe-area-inset-right));
+            padding-bottom: max(10px, env(safe-area-inset-bottom));
             margin: 0;
             display: flex;
             flex-direction: column;
@@ -694,6 +706,7 @@
 
         .table-responsive {
             overflow-x: auto;
+            max-width: 100%; /* evita que la tabla ancha empuje toda la página en vez de solo desplazarse ella misma */
             -webkit-overflow-scrolling: touch;
             margin-bottom: 20px;
             /* Sombra sutil en los bordes para que se note que hay más contenido al deslizar */
@@ -2085,6 +2098,37 @@
     <script>
         let chartComparacion, chartTendencia, chartTopProductos, chartDistribucion;
 
+        // Respaldo: si la app corre empaquetada (APK) y por algún motivo la
+        // configuración nativa del plugin StatusBar no se aplicó, esto la fuerza
+        // igual desde JS para que la barra de estado no tape el encabezado.
+        if (window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar) {
+            try {
+                window.Capacitor.Plugins.StatusBar.setOverlaysWebView({ overlay: false });
+            } catch (e) {
+                console.warn('No se pudo ajustar la barra de estado:', e);
+            }
+        }
+        ajustarOrientacionPorTab('dashboard'); // pestaña inicial: fuerza vertical al abrir la app
+
+        // Gira la pantalla a horizontal automáticamente en las pestañas con tablas
+        // anchas (Búsqueda, Reportes, Historial), y la devuelve a vertical en el resto.
+        // Solo actúa dentro de la app compilada (APK); en el navegador no hace nada.
+        async function ajustarOrientacionPorTab(tabName) {
+            if (!(window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.ScreenOrientation)) {
+                return;
+            }
+            const tabsHorizontal = ['busqueda', 'reportes', 'historial'];
+            try {
+                if (tabsHorizontal.includes(tabName)) {
+                    await window.Capacitor.Plugins.ScreenOrientation.lock({ orientation: 'landscape' });
+                } else {
+                    await window.Capacitor.Plugins.ScreenOrientation.lock({ orientation: 'portrait' });
+                }
+            } catch (e) {
+                console.warn('No se pudo ajustar la orientación de pantalla:', e);
+            }
+        }
+
         // INICIALIZACIÓN
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('fecha').valueAsDate = new Date();
@@ -2383,6 +2427,13 @@
             btns.forEach(btn => btn.classList.remove('active'));
 
             document.getElementById(tabName).classList.add('active');
+
+            // En la app compilada (APK), estas 3 pestañas tienen tablas anchas con
+            // muchas columnas (fechas, cantidades, categorías, etc.) que se leen mejor
+            // en horizontal. Si el dispositivo lo soporta, se gira solo automáticamente
+            // al entrar y vuelve a vertical al salir. En el navegador normal esto no
+            // hace nada (la rotación la sigue controlando el usuario como siempre).
+            ajustarOrientacionPorTab(tabName);
 
             // Se recibe el botón pulsado como parámetro (más fiable en móvil que depender
             // del objeto global "event", que algunos navegadores no soportan igual).
