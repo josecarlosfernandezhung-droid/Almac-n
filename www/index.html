@@ -504,6 +504,27 @@
             padding: 14px 16px;
             color: white;
             box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            /* Fondos de color: antes solo existían para ".stat-card.danger" (sin el
+               "mini-"), así que estas tarjetas quedaban con fondo blanco y el texto,
+               que también es blanco, se volvía invisible — solo se veía el emoji de
+               color, que no depende del CSS. */
+            background: linear-gradient(135deg, #9aa0b8 0%, #767ba0 100%);
+        }
+
+        .mini-stat-card.success {
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+        }
+
+        .mini-stat-card.danger {
+            background: linear-gradient(135deg, #f44336 0%, #da190b 100%);
+        }
+
+        .mini-stat-card.warning {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+        }
+
+        .mini-stat-card.neutral {
+            background: linear-gradient(135deg, #9aa0b8 0%, #767ba0 100%);
         }
 
         .mini-stat-value {
