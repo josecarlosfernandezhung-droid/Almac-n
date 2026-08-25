@@ -216,6 +216,63 @@
             min-height: 70px;
         }
 
+        /* LISTA DE SUGERENCIAS DEL CAMPO "Producto" (reemplaza al <datalist> nativo,
+           que en el WebView del APK se renderizaba mal: flotaba por toda la pantalla
+           tapando el teclado en vez de quedarse pegado al campo). */
+        .autocomplete-wrap {
+            position: relative;
+        }
+
+        .autocomplete-list {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 4px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            max-height: 240px;
+            overflow-y: auto;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+            z-index: 60;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .autocomplete-list.abierta {
+            display: block;
+        }
+
+        .autocomplete-item {
+            padding: 11px 14px;
+            font-size: 14.5px;
+            color: #333;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+        }
+
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+
+        .autocomplete-item:active,
+        .autocomplete-item.resaltado {
+            background: #eef1fd;
+        }
+
+        .autocomplete-item .autocomplete-sku {
+            color: #888;
+            font-size: 12px;
+        }
+
+        .autocomplete-vacio {
+            padding: 12px 14px;
+            font-size: 13px;
+            color: #999;
+            text-align: center;
+        }
+
         input:focus, select:focus, textarea:focus {
             outline: none;
             border-color: #667eea;
@@ -1571,6 +1628,25 @@
                 </div>
             </div>
 
+            <!-- Se usa cuando no se pudo guardar/compartir un archivo directamente (típico en
+                 la app APK): muestra el contenido completo para copiarlo y pegarlo donde el
+                 usuario quiera (WhatsApp, Notas, correo...), así el respaldo nunca se pierde. -->
+            <div id="modalCopiarArchivo" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                <div class="modal-box" style="max-width: 600px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <h2 style="margin: 0; font-size: 18px;">📋 Guardar manualmente</h2>
+                        <button onclick="cerrarModalCopiarArchivo()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">✕</button>
+                    </div>
+                    <p style="font-size: 13px; color: #444; margin-bottom: 10px;">Este dispositivo no dejó guardar o compartir el archivo <strong id="copiarArchivoNombre"></strong> directamente. Copia todo el contenido de abajo y pégalo en WhatsApp, Notas, correo o donde prefieras guardarlo — así no se pierde.</p>
+                    <textarea id="copiarArchivoContenido" readonly style="width:100%; height: 220px; font-family: monospace; font-size: 11.5px;"></textarea>
+                    <div id="mensajeCopiarArchivo" style="margin-top: 8px;"></div>
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button type="button" class="btn btn-primary" onclick="copiarContenidoArchivoManual()">📋 Copiar todo</button>
+                        <button type="button" class="btn btn-secondary" onclick="cerrarModalCopiarArchivo()">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- HISTORIAL EDITABLE -->
             <div id="historial" class="tab-content">
                 <h2>📜 Historial Editable - Elimina Movimientos Equivocados</h2>
@@ -1641,10 +1717,13 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="producto">Producto *</label>
-                            <input type="text" id="producto" list="listaProductosRegistro" required
-                                   placeholder="🔍 Escribe para buscar un producto..." autocomplete="off"
-                                   oninput="autocompletarCamposProducto()" onchange="autocompletarCamposProducto()">
-                            <datalist id="listaProductosRegistro"></datalist>
+                            <div class="autocomplete-wrap">
+                                <input type="text" id="producto" required autocomplete="off"
+                                       placeholder="🔍 Escribe para buscar un producto..."
+                                       oninput="manejarInputProducto()" onfocus="manejarInputProducto()"
+                                       onblur="ocultarSugerenciasProductoConRetraso()">
+                                <div id="sugerenciasProducto" class="autocomplete-list"></div>
+                            </div>
                             <div id="infoStockProducto" style="font-size: 12px; margin-top: 4px; color: #666;"></div>
                         </div>
                         <div class="form-group">
@@ -1814,6 +1893,7 @@
                     <button class="btn btn-secondary" onclick="exportarJSON()">📋 Exportar JSON</button>
                     <button class="btn btn-secondary" onclick="generarReporteExcel()">📈 Excel (Simulado)</button>
                 </div>
+                <div id="mensajeReportes" style="margin-top: 10px;"></div>
 
                 <div style="background: #fff3e0; padding: 12px; border-radius: 16px; margin-top: 15px; border-left: 4px solid #ff9800;">
                     <strong>📤 Lista para el conteo (PDF)</strong>
@@ -3393,23 +3473,65 @@
         }
 
         // ACTUALIZAR SELECT DE PRODUCTOS DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
+        // Catálogo ordenado que usa la lista de sugerencias propia del campo "Producto"
+        let catalogoAutocompleteProducto = [];
+
         function actualizarProductosList() {
             const catalogo = cargarProductos();
             const input = document.getElementById('producto');
-            const datalist = document.getElementById('listaProductosRegistro');
             const valorActual = input.value;
 
-            const opciones = catalogo
-                .sort((a, b) => a.nombre.localeCompare(b.nombre))
-                .map(p => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre} (${p.sku})</option>`)
-                .join('');
-
-            datalist.innerHTML = opciones;
+            catalogoAutocompleteProducto = catalogo.slice().sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
 
             // Conservar lo que se había escrito/seleccionado si el producto sigue existiendo
             if(valorActual && buscarProductoPorNombre(valorActual)) {
                 input.value = valorActual;
             }
+        }
+
+        // Muestra hasta 30 productos que coincidan con lo escrito (por nombre o SKU),
+        // en una lista propia pegada al campo — reemplaza al <datalist> nativo, que en
+        // el WebView del APK se salía de su sitio y tapaba el teclado.
+        function manejarInputProducto() {
+            autocompletarCamposProducto();
+
+            const input = document.getElementById('producto');
+            const caja = document.getElementById('sugerenciasProducto');
+            const texto = input.value.trim().toLowerCase();
+
+            let coincidencias = catalogoAutocompleteProducto;
+            if(texto) {
+                coincidencias = catalogoAutocompleteProducto.filter(p =>
+                    p.nombre.toLowerCase().includes(texto) || (p.sku || '').toLowerCase().includes(texto)
+                );
+            }
+            coincidencias = coincidencias.slice(0, 30);
+
+            if(coincidencias.length === 0) {
+                caja.innerHTML = '<div class="autocomplete-vacio">Ningún producto coincide. Créalo primero en la pestaña 📦 Productos.</div>';
+            } else {
+                caja.innerHTML = coincidencias.map(p => `
+                    <div class="autocomplete-item" onmousedown="seleccionarProductoSugerido('${p.nombre.replace(/'/g, "\\'")}')">
+                        ${escaparHtmlSimple(p.nombre)} <span class="autocomplete-sku">(${escaparHtmlSimple(p.sku || 'sin SKU')})</span>
+                    </div>
+                `).join('');
+            }
+            caja.classList.add('abierta');
+        }
+
+        function seleccionarProductoSugerido(nombre) {
+            document.getElementById('producto').value = nombre;
+            document.getElementById('sugerenciasProducto').classList.remove('abierta');
+            autocompletarCamposProducto();
+        }
+
+        // Pequeño retraso antes de esconder la lista al perder el foco, para que le dé
+        // tiempo al toque sobre una sugerencia a registrarse (si no, se cierra antes de
+        // poder elegirla). Se usa "onmousedown" arriba en vez de "onclick" por lo mismo.
+        function ocultarSugerenciasProductoConRetraso() {
+            setTimeout(() => {
+                document.getElementById('sugerenciasProducto').classList.remove('abierta');
+            }, 150);
         }
 
         // ACTUALIZAR DASHBOARD
@@ -3876,7 +3998,15 @@
             document.getElementById('reporteContenido').innerHTML = contenido;
         }
 
-        function exportarCSV() {
+        function mostrarMensajeReportes(texto, tipo = 'success') {
+            const div = document.getElementById('mensajeReportes');
+            if(!div) return;
+            const clase = tipo === 'success' ? 'alert-success' : 'alert-error';
+            div.innerHTML = `<div class="alert ${clase}">${texto}</div>`;
+            setTimeout(() => { div.innerHTML = ''; }, 5000);
+        }
+
+        async function exportarCSV() {
             const movimientos = cargarDatos();
             let csv = 'Fecha,Tipo,Producto,Cantidad,Unidad,Categoría,Referencia,Observaciones\n';
             
@@ -3884,22 +4014,26 @@
                 csv += `"${m.fecha}","${m.tipo}","${m.producto}",${m.cantidad},"${m.unidad}","${m.categoria}","${m.referencia}","${m.observaciones}"\n`;
             });
 
-            descargarArchivo(csv, `inventario_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
+            const resultado = await descargarArchivo(csv, `inventario_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
+            const info = describirResultadoDescarga(resultado, 'el CSV');
+            mostrarMensajeReportes(info.texto, info.tipo);
         }
 
-        function exportarJSON() {
-            descargarArchivo(
+        async function exportarJSON() {
+            const resultado = await descargarArchivo(
                 JSON.stringify(cargarDatos(), null, 2),
                 `inventario_${new Date().toISOString().split('T')[0]}.json`,
                 'application/json'
             );
+            const info = describirResultadoDescarga(resultado, 'el JSON');
+            mostrarMensajeReportes(info.texto, info.tipo);
         }
 
         // Genera el archivo .json que la app de Arqueo sabe leer con su botón
         // "Importar cantidades desde el Inventario (por SKU)". Empareja por
         // Código/SKU, no por nombre, así que no hace falta que los nombres
         // coincidan entre las dos apps.
-        function exportarParaArqueoJSON() {
+        async function exportarParaArqueoJSON() {
             const catalogo = cargarProductos();
             if(catalogo.length === 0) {
                 alert('⚠️ No hay productos en el catálogo para exportar.');
@@ -3936,15 +4070,16 @@
             };
 
             const sufijo = soloDisponibles ? '_disponibles' : '';
-            descargarArchivo(
+            const resultado = await descargarArchivo(
                 JSON.stringify(payload, null, 2),
                 `arqueo_inventario${sufijo}_${new Date().toISOString().split('T')[0]}.json`,
                 'application/json'
             );
 
-            if(sinSku > 0) {
-                alert(`✅ Archivo generado con ${productos.length} producto(s).\n⚠️ ${sinSku} producto(s) sin SKU no se incluyeron.`);
-            }
+            const info = describirResultadoDescarga(resultado, 'el archivo para Arqueo');
+            let texto = info.texto;
+            if(resultado.ok && sinSku > 0) texto += ` ⚠️ ${sinSku} producto(s) sin SKU no se incluyeron.`;
+            mostrarMensajeReportes(texto, info.tipo);
         }
 
         function alternarSoloDisponiblesReportes() {
@@ -4096,7 +4231,7 @@
             window.location.href = 'whatsapp://send?text=' + encodeURIComponent(texto);
         }
 
-        function descargarRespaldo() {
+        async function descargarRespaldo() {
             const datos = {
                 fecha_respaldo: new Date().toISOString(),
                 version: '2.1',
@@ -4104,12 +4239,13 @@
                 productos: cargarProductos()
             };
             
-            descargarArchivo(
+            const resultado = await descargarArchivo(
                 JSON.stringify(datos, null, 2),
                 `respaldo_inventario_${new Date().toISOString().split('T')[0]}.json`,
                 'application/json'
             );
-            mostrarMensajeRespaldo('✅ Respaldo descargado correctamente', 'success');
+            const info = describirResultadoDescarga(resultado, 'el respaldo');
+            mostrarMensajeRespaldo(info.texto, info.tipo);
         }
 
         // Descarga el mismo respaldo pero comprimido en un .zip real, generado con un
@@ -4117,7 +4253,7 @@
         // funcione offline). Usa el método "STORED" (sin compresión de datos, solo empaquetado),
         // así que el .zip pesa casi igual que el JSON, pero sirve para tener un solo archivo
         // y para quien prefiera subir/enviar un .zip en vez de un .json suelto.
-        function descargarRespaldoComprimido() {
+        async function descargarRespaldoComprimido() {
             const datos = {
                 fecha_respaldo: new Date().toISOString(),
                 version: '2.1',
@@ -4130,8 +4266,17 @@
 
             try {
                 const blobZip = crearZipSimple([{ nombre: nombreArchivoInterno, contenido: contenidoJson }]);
-                descargarArchivo(blobZip, nombreZip, 'application/zip');
-                mostrarMensajeRespaldo('✅ Respaldo comprimido (.zip) descargado correctamente', 'success');
+                const resultado = await descargarArchivo(blobZip, nombreZip, 'application/zip');
+                if(resultado.metodo === 'copiar' || resultado.metodo === 'ninguno') {
+                    // El .zip es binario: no tiene sentido "copiarlo" como texto. Si llegamos
+                    // aquí es porque no se pudo compartir ni descargar — se ofrece el JSON
+                    // normal (sin comprimir) como red de seguridad, que si se puede copiar.
+                    mostrarMensajeRespaldo('⚠️ No se pudo guardar el .zip en este dispositivo. Se muestra el respaldo sin comprimir para copiarlo a mano.', 'error');
+                    mostrarModalCopiarArchivo(nombreArchivoInterno, contenidoJson);
+                    return;
+                }
+                const info = describirResultadoDescarga(resultado, 'el respaldo comprimido');
+                mostrarMensajeRespaldo(info.texto, info.tipo);
             } catch(err) {
                 console.error('Error generando ZIP:', err);
                 mostrarMensajeRespaldo('❌ No se pudo generar el ZIP, descarga el respaldo normal (JSON) en su lugar.', 'error');
@@ -5534,36 +5679,99 @@
             window.location.href = url;
         }
 
-        // Descarga/guarda un archivo. En un navegador normal, el truco de <a download>
-        // con blob funciona bien. Pero dentro de una app compilada (APK con Capacitor)
-        // ese truco casi nunca guarda nada, porque el WebView no tiene una carpeta de
-        // "Descargas" a la que escribir directamente. Por eso primero se intenta con la
-        // API nativa de "Compartir" del dispositivo (Web Share API con archivos), que
-        // dentro del APK abre el panel de Android para guardar en Archivos, enviar por
-        // WhatsApp, etc. Si eso no está disponible (navegador de escritorio, por ejemplo),
-        // se usa el método de siempre sin ningún cambio de comportamiento.
+        // Descarga/guarda un archivo. Devuelve un resultado honesto ({ok:true/false,...})
+        // en vez de asumir que siempre funcionó — así quien llama a esta función puede
+        // mostrar el mensaje correcto en vez de un falso "✅ descargado" cuando en
+        // realidad no se guardó nada (esto pasaba antes en la app compilada/APK).
+        //
+        // Orden de intentos:
+        // 1) Compartir con el panel nativo de Android (funciona bien dentro del APK:
+        //    deja elegir "Guardar en Archivos", enviarlo por WhatsApp, etc.)
+        // 2) El truco de <a download> con blob (funciona en navegador normal; casi
+        //    nunca hace nada dentro de un WebView de Capacitor, pero no cuesta intentarlo).
+        // 3) Si nada de lo anterior se pudo confirmar Y estamos dentro del APK, se
+        //    muestra el contenido en un cuadro de texto para copiarlo a mano, para que
+        //    el respaldo nunca se pierda del todo.
         async function descargarArchivo(contenido, nombre, tipo) {
+            const esAppNativa = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
             const blob = new Blob([contenido], { type: tipo });
 
             try {
                 const archivo = new File([blob], nombre, { type: tipo });
                 if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
                     await navigator.share({ files: [archivo], title: nombre });
-                    return;
+                    return { ok: true, metodo: 'compartir' };
                 }
             } catch (err) {
-                if (err && err.name === 'AbortError') return; // el usuario cerró el panel, no es un error
+                if (err && err.name === 'AbortError') return { ok: false, cancelado: true };
                 console.warn('No se pudo compartir el archivo, se intenta descarga normal:', err);
             }
 
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = nombre;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            // Dentro del APK, este método casi nunca guarda nada de verdad — por eso no se
+            // confía en que haya funcionado solo por no haber lanzado un error.
+            if(!esAppNativa) {
+                try {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = nombre;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    return { ok: true, metodo: 'descarga' };
+                } catch(err) {
+                    console.warn('Descarga por enlace también falló:', err);
+                }
+            }
+
+            // Último recurso: mostrar el contenido para copiarlo a mano (solo funciona bien
+            // con texto — JSON/CSV; para el .zip binario no aplica y se avisa aparte).
+            const esTexto = typeof contenido === 'string';
+            if(esTexto) {
+                mostrarModalCopiarArchivo(nombre, contenido);
+            }
+            return { ok: false, metodo: esTexto ? 'copiar' : 'ninguno' };
+        }
+
+        function mostrarModalCopiarArchivo(nombre, contenido) {
+            document.getElementById('copiarArchivoNombre').textContent = nombre;
+            document.getElementById('copiarArchivoContenido').value = contenido;
+            document.getElementById('mensajeCopiarArchivo').innerHTML = '';
+            document.getElementById('modalCopiarArchivo').style.display = 'block';
+        }
+
+        function cerrarModalCopiarArchivo() {
+            document.getElementById('modalCopiarArchivo').style.display = 'none';
+        }
+
+        async function copiarContenidoArchivoManual() {
+            const textarea = document.getElementById('copiarArchivoContenido');
+            const msg = document.getElementById('mensajeCopiarArchivo');
+            try {
+                if(navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(textarea.value);
+                } else {
+                    textarea.focus();
+                    textarea.select();
+                    document.execCommand('copy');
+                }
+                msg.innerHTML = '<div class="alert alert-success">✅ Copiado. Ahora pégalo donde quieras guardarlo.</div>';
+            } catch(err) {
+                textarea.focus();
+                textarea.select();
+                msg.innerHTML = '<div class="alert alert-error">No se pudo copiar automáticamente: selecciona el texto de arriba a mano y cópialo (mantén el dedo presionado sobre el texto).</div>';
+            }
+        }
+
+        // Explica en una frase corta qué pasó tras intentar guardar un archivo, para
+        // usarla junto a mostrarMensaje()/mostrarMensajeRespaldo() en cada punto de descarga.
+        function describirResultadoDescarga(resultado, nombreCorto) {
+            if(resultado.ok && resultado.metodo === 'compartir') return { texto: `✅ Elige dónde guardar "${nombreCorto}" en el panel que se abrió.`, tipo: 'success' };
+            if(resultado.ok && resultado.metodo === 'descarga') return { texto: `✅ "${nombreCorto}" descargado correctamente.`, tipo: 'success' };
+            if(resultado.cancelado) return { texto: 'Se canceló antes de elegir dónde guardarlo.', tipo: 'error' };
+            if(resultado.metodo === 'copiar') return { texto: `⚠️ No se pudo guardar directamente. Copia el contenido del cuadro que se abrió.`, tipo: 'error' };
+            return { texto: `❌ No se pudo guardar "${nombreCorto}" en este dispositivo.`, tipo: 'error' };
         }
 
         function mostrarMensaje(texto, tipo = 'success') {
@@ -5710,14 +5918,12 @@
             mostrarMensaje('✅ Búsqueda guardada (próxima actualización)', 'success');
         }
 
-        function generarReporteCompleto() {
-            mostrarMensaje('📄 Reporte generado. Descargando...', 'success');
-            exportarJSON();
+        async function generarReporteCompleto() {
+            await exportarJSON();
         }
 
-        function generarReporteExcel() {
-            exportarCSV();
-            mostrarMensaje('📈 Archivo Excel simulado descargado como CSV', 'success');
+        async function generarReporteExcel() {
+            await exportarCSV();
         }
     </script>
 </body>
