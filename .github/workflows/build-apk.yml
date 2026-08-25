@@ -35,6 +35,20 @@ jobs:
       - name: Agregar plataforma Android (se genera en cada build, no se guarda en el repo)
         run: npx cap add android
 
+      - name: Instalar plugin nativo FileSaver (guardado confiable de archivos en Descargas)
+        run: |
+          MAIN_ACTIVITY=$(find android -name MainActivity.java)
+          PACKAGE_NAME=$(grep '^package ' "$MAIN_ACTIVITY" | sed 's/package //;s/;//')
+          PLUGIN_DIR=$(dirname "$MAIN_ACTIVITY")
+          echo "MainActivity encontrado en: $MAIN_ACTIVITY"
+          echo "Paquete detectado: $PACKAGE_NAME"
+
+          # Copia el plugin dentro del proyecto generado, con el paquete correcto
+          sed "s/TU.PAQUETE.AQUI/$PACKAGE_NAME/" native-patches/FileSaverPlugin.java > "$PLUGIN_DIR/FileSaverPlugin.java"
+
+          # Registra el plugin en MainActivity.java (agrega un onCreate si no existe)
+          python3 native-patches/registrar_plugin.py "$MAIN_ACTIVITY"
+
       - name: Generar ícono de la app (a partir de resources/icon.png)
         run: npx @capacitor/assets generate --android --iconBackgroundColor '#FFFFFF' --iconBackgroundColorDark '#FFFFFF'
 
