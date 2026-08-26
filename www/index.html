@@ -38,10 +38,12 @@
             margin: 0;
             display: flex;
             flex-direction: column;
+            align-items: center; /* centra el .container horizontalmente en vertical Y en horizontal, sin depender solo del margin:auto */
             overflow-x: hidden; /* red de seguridad: nada puede empujar la página más ancha que la pantalla */
         }
 
         .container {
+            width: 100%;
             max-width: 1400px;
             margin: 0 auto;
             background: white;
@@ -64,6 +66,31 @@
         .header h1 {
             font-size: 32px;
             margin-bottom: 5px;
+        }
+
+        /* Insignia "💾 Guardado" que aparece brevemente en la esquina del header
+           cada vez que la app guarda algo en el dispositivo. Ver el envoltorio de
+           localStorage.setItem más abajo, que la dispara automáticamente sin haber
+           tenido que tocar cada función que guarda datos una por una. */
+        .indicador-guardado {
+            position: absolute;
+            top: 14px;
+            right: 16px;
+            background: rgba(255,255,255,0.95);
+            color: #2e7d32;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            opacity: 0;
+            transform: translateY(-6px);
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            pointer-events: none;
+        }
+        .indicador-guardado.visible {
+            opacity: 1;
+            transform: translateY(0);
         }
 
         .header p {
@@ -1253,6 +1280,7 @@
         <div class="header">
             <h1>📦 Gestor de Inventario Avanzado</h1>
             <p>Análisis inteligente de entradas y salidas con gráficos y estadísticas</p>
+            <div id="indicadorGuardado" class="indicador-guardado">💾 Guardado</div>
         </div>
 
         <div class="tabs">
@@ -2128,6 +2156,21 @@
                     </div>
 
                     <div id="linkVisorStockGitHub" style="display:none; background: #eef6ff; padding: 20px; border-radius: 16px; margin-bottom: 20px;"></div>
+
+                    <!-- ===== SINCRONIZAR MOVIMIENTOS ENTRE DISPOSITIVOS (tú y tu colega) ===== -->
+                    <div id="bloqueSyncMovimientos" style="display:none; background: #f0fdf4; padding: 20px; border-radius: 16px; margin-bottom: 20px; border: 2px solid #a5d6a7;">
+                        <h3>4️⃣ Sincronizar movimientos con otro dispositivo (ej. tu colega)</h3>
+                        <p style="color:#444; margin: 8px 0;">Esto usa el mismo repositorio de arriba, así que no hace falta VPN. Cada dispositivo sube sus propios movimientos a una carpeta compartida y trae los del otro automáticamente, combinándolos sin duplicar.</p>
+                        <div class="form-group">
+                            <label for="nombreDispositivoInput">Nombre de este dispositivo</label>
+                            <input type="text" id="nombreDispositivoInput" placeholder="ej: José o Geovanny" onchange="guardarNombreDispositivo()">
+                        </div>
+                        <div class="button-group">
+                            <button class="btn btn-success" onclick="sincronizarMovimientosAhora(true)">🔄 Sincronizar movimientos ahora</button>
+                        </div>
+                        <p id="estadoSyncMovimientos" style="margin-top: 12px; font-weight: bold;">⚪ Todavía no se ha sincronizado</p>
+                        <div id="mensajeSyncMovimientos"></div>
+                    </div>
 
                     <div style="background: #fff8e1; padding: 15px; border-radius: 16px; font-size: 14px; color: #665500;">
                         💡 Solo se sube un resumen del stock (no el historial de movimientos), y solo cuando algo realmente cambió, para no llenar de commits el repositorio. Si el repositorio es <strong>público</strong>, cualquiera con el link puede ver el archivo; si es <strong>privado</strong>, solo se puede ver con el token.<br><br>
@@ -3210,6 +3253,7 @@
                 mostrarLinkVisorStockGitHub(config);
                 mostrarMensajeSyncGitHub('✅ Conectado. El stock se está sincronizando con GitHub.', 'success');
                 sincronizarStockGitHub();
+                activarSyncMovimientos(config);
             });
         }
 
@@ -3221,6 +3265,7 @@
             actualizarEstadoSyncGitHub(false);
             document.getElementById('linkVisorStockGitHub').style.display = 'none';
             mostrarMensajeSyncGitHub('Sincronización con GitHub desactivada. Tus datos siguen guardados localmente sin cambios.', 'success');
+            desactivarSyncMovimientos();
         }
 
         function actualizarEstadoSyncGitHub(conectado, reintentando) {
@@ -3255,6 +3300,7 @@
                     actualizarEstadoSyncGitHub(true);
                     mostrarLinkVisorStockGitHub(configGuardada);
                     sincronizarStockGitHub();
+                    activarSyncMovimientos(configGuardada);
                 } else {
                     actualizarEstadoSyncGitHub(false, true);
                     if(reintentoSyncGitHubTimeout) clearTimeout(reintentoSyncGitHubTimeout);
@@ -3391,6 +3437,203 @@
             if(!div) return;
             div.innerHTML = `<div class="alert ${tipo === 'error' ? 'alert-error' : 'alert-success'}">${texto}</div>`;
             setTimeout(() => { div.innerHTML = ''; }, 6000);
+        }
+
+        // ===== SINCRONIZAR MOVIMIENTOS ENTRE DISPOSITIVOS (ej. José y Geovanny) =====
+        // Usa el mismo repositorio de GitHub que ya conectaste arriba, así que no
+        // hace falta VPN. Cada dispositivo guarda SUS PROPIOS movimientos en un
+        // archivo aparte dentro de la carpeta "sync-movimientos/" (uno por
+        // dispositivo, según el nombre que le pongas), y en cada ciclo de
+        // sincronización: 1) sube los movimientos nuevos que registraste aquí,
+        // 2) revisa esa carpeta y trae los movimientos de los demás archivos que
+        // todavía no tengas, combinándolos con los tuyos sin duplicar nada.
+        const CARPETA_SYNC_MOVIMIENTOS = 'sync-movimientos';
+        let intervaloSyncMovimientos = null;
+        let sincronizandoMovimientos = false;
+
+        function slugDispositivo(texto) {
+            return (texto || '').toString().trim().toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+                .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'dispositivo';
+        }
+
+        function obtenerNombreDispositivo() {
+            return localStorage.getItem('dispositivoSyncNombre') || '';
+        }
+
+        function guardarNombreDispositivo() {
+            const nombre = document.getElementById('nombreDispositivoInput').value.trim();
+            if(!nombre) return;
+            localStorage.setItem('dispositivoSyncNombre', nombre);
+            mostrarMensajeSyncMovimientos(`✅ Este dispositivo se llamará "${nombre}" al sincronizar.`, 'success');
+        }
+
+        // Ids de movimientos que llegaron de OTRO dispositivo (para no volver a
+        // subirlos como si fueran propios, y para no duplicarlos si aparecen de nuevo).
+        function obtenerIdsMovimientosRemotos() {
+            try { return new Set(JSON.parse(localStorage.getItem('movimientosIdsRemotos') || '[]')); }
+            catch(e) { return new Set(); }
+        }
+        function guardarIdsMovimientosRemotos(set) {
+            localStorage.setItem('movimientosIdsRemotos', JSON.stringify(Array.from(set)));
+        }
+
+        function activarSyncMovimientos(config) {
+            const bloque = document.getElementById('bloqueSyncMovimientos');
+            if(bloque) bloque.style.display = 'block';
+            const nombreGuardado = obtenerNombreDispositivo();
+            const input = document.getElementById('nombreDispositivoInput');
+            if(input && nombreGuardado) input.value = nombreGuardado;
+
+            if(intervaloSyncMovimientos) clearInterval(intervaloSyncMovimientos);
+            // Sincronización automática de fondo cada 2 minutos mientras la app esté abierta.
+            intervaloSyncMovimientos = setInterval(() => sincronizarMovimientosAhora(false), 2 * 60 * 1000);
+
+            if(nombreGuardado) sincronizarMovimientosAhora(false); // primer intento apenas conecta
+        }
+
+        function desactivarSyncMovimientos() {
+            const bloque = document.getElementById('bloqueSyncMovimientos');
+            if(bloque) bloque.style.display = 'none';
+            if(intervaloSyncMovimientos) { clearInterval(intervaloSyncMovimientos); intervaloSyncMovimientos = null; }
+        }
+
+        function mostrarMensajeSyncMovimientos(texto, tipo) {
+            const div = document.getElementById('mensajeSyncMovimientos');
+            if(!div) return;
+            div.innerHTML = `<div class="alert ${tipo === 'error' ? 'alert-error' : 'alert-success'}">${texto}</div>`;
+            setTimeout(() => { div.innerHTML = ''; }, 6000);
+        }
+
+        function actualizarEstadoSyncMovimientos(texto, color) {
+            const el = document.getElementById('estadoSyncMovimientos');
+            if(!el) return;
+            el.textContent = texto;
+            el.style.color = color || '#666';
+        }
+
+        // Ciclo completo: sube lo propio y luego trae lo de los demás.
+        // esManual=true cuando lo dispara el botón (para avisar con más detalle).
+        function sincronizarMovimientosAhora(esManual) {
+            const config = cargarConfigGitHub();
+            if(!config) return;
+
+            const miNombre = obtenerNombreDispositivo();
+            if(!miNombre) {
+                if(esManual) mostrarMensajeSyncMovimientos('⚠️ Primero ponle un nombre a este dispositivo (ej. José) arriba.', 'error');
+                return;
+            }
+            if(sincronizandoMovimientos) return;
+            sincronizandoMovimientos = true;
+            actualizarEstadoSyncMovimientos('⏳ Sincronizando movimientos...', '#f57c00');
+
+            subirMovimientosPropios(config, miNombre, function(okSubida) {
+                descargarMovimientosDeOtros(config, miNombre, function(okBajada, traidos) {
+                    sincronizandoMovimientos = false;
+                    const hora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                    if(okSubida && okBajada) {
+                        actualizarEstadoSyncMovimientos(`🟢 Sincronizado ${hora}` + (traidos > 0 ? ` — ${traidos} movimiento(s) nuevo(s) de otros dispositivos` : ''), '#2e7d32');
+                        if(esManual) mostrarMensajeSyncMovimientos(traidos > 0 ? `✅ Se trajeron ${traidos} movimiento(s) nuevo(s).` : '✅ Ya estabas al día, no había nada nuevo.', 'success');
+                    } else {
+                        actualizarEstadoSyncMovimientos('🟡 No se pudo sincronizar ahora (revisa tu conexión) — se reintenta solo', '#f57c00');
+                        if(esManual) mostrarMensajeSyncMovimientos('❌ No se pudo sincronizar. Revisa tu conexión a internet e inténtalo de nuevo.', 'error');
+                    }
+                });
+            });
+        }
+
+        // Sube SOLO los movimientos creados en este dispositivo (excluye los que
+        // ya llegaron de otro dispositivo, para no "devolverlos" mezclados).
+        function subirMovimientosPropios(config, miNombre, callback) {
+            const remotosIds = obtenerIdsMovimientosRemotos();
+            const propios = cargarDatos().filter(m => !remotosIds.has(m.id));
+            const rutaPropia = `${CARPETA_SYNC_MOVIMIENTOS}/${slugDispositivo(miNombre)}.json`;
+            const urlBase = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(rutaPropia)}`;
+            const headers = { 'Authorization': `token ${config.token}`, 'Accept': 'application/vnd.github+json' };
+
+            fetch(`${urlBase}?ref=${encodeURIComponent(config.branch || 'main')}`, { headers })
+                .then(resp => resp.status === 404 ? null : (resp.ok ? resp.json() : Promise.reject(new Error('código ' + resp.status))))
+                .then(data => {
+                    const contenido = JSON.stringify({ dispositivo: miNombre, actualizado: new Date().toISOString(), movimientos: propios }, null, 2);
+                    const contenidoB64 = btoa(unescape(encodeURIComponent(contenido)));
+                    const body = {
+                        message: `Sync movimientos (${miNombre}) - ` + new Date().toLocaleString('es-ES'),
+                        content: contenidoB64,
+                        branch: config.branch || 'main'
+                    };
+                    if(data && data.sha) body.sha = data.sha;
+
+                    return fetch(urlBase, {
+                        method: 'PUT',
+                        headers: { ...headers, 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                })
+                .then(resp => { if(!resp.ok) throw new Error('código ' + resp.status); callback(true); })
+                .catch(e => { console.warn('No se pudo subir mis movimientos a GitHub:', e.message); callback(false); });
+        }
+
+        // Revisa la carpeta compartida, trae los archivos de los DEMÁS dispositivos
+        // (todos menos el propio) y combina cualquier movimiento que no tengas ya.
+        function descargarMovimientosDeOtros(config, miNombre, callback) {
+            const urlCarpeta = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(CARPETA_SYNC_MOVIMIENTOS)}?ref=${encodeURIComponent(config.branch || 'main')}`;
+            const headers = { 'Authorization': `token ${config.token}`, 'Accept': 'application/vnd.github+json' };
+            const miArchivo = `${slugDispositivo(miNombre)}.json`;
+
+            fetch(urlCarpeta, { headers })
+                .then(resp => resp.status === 404 ? [] : (resp.ok ? resp.json() : Promise.reject(new Error('código ' + resp.status))))
+                .then(lista => {
+                    const archivosDeOtros = (Array.isArray(lista) ? lista : []).filter(f => f.name !== miArchivo && f.name.endsWith('.json'));
+                    if(archivosDeOtros.length === 0) { callback(true, 0); return; }
+
+                    let pendientes = archivosDeOtros.length;
+                    let totalTraidos = 0;
+                    let huboError = false;
+
+                    archivosDeOtros.forEach(archivo => {
+                        fetch(archivo.url, { headers })
+                            .then(resp => { if(!resp.ok) throw new Error('código ' + resp.status); return resp.json(); })
+                            .then(data => {
+                                const contenido = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))));
+                                const json = JSON.parse(contenido);
+                                totalTraidos += combinarMovimientosRemotos(json.movimientos || []);
+                            })
+                            .catch(e => { huboError = true; console.warn('No se pudo leer movimientos remotos de', archivo.name, ':', e.message); })
+                            .finally(() => {
+                                pendientes--;
+                                if(pendientes === 0) callback(!huboError, totalTraidos);
+                            });
+                    });
+                })
+                .catch(e => { console.warn('No se pudo listar la carpeta de sincronización:', e.message); callback(false, 0); });
+        }
+
+        // Agrega al historial local los movimientos remotos que todavía no existan
+        // (comparando por id). Devuelve cuántos se agregaron nuevos.
+        function combinarMovimientosRemotos(movimientosRemotos) {
+            if(!movimientosRemotos.length) return 0;
+            const actuales = cargarDatos();
+            const idsActuales = new Set(actuales.map(m => m.id));
+            const remotosIds = obtenerIdsMovimientosRemotos();
+
+            let agregados = 0;
+            movimientosRemotos.forEach(m => {
+                if(!idsActuales.has(m.id)) {
+                    actuales.push(m);
+                    idsActuales.add(m.id);
+                    remotosIds.add(m.id);
+                    agregados++;
+                }
+            });
+
+            if(agregados > 0) {
+                localStorage.setItem('movimientos', JSON.stringify(actuales));
+                guardarIdsMovimientosRemotos(remotosIds);
+                // Refresca las vistas que dependen del historial, si están cargadas.
+                if(typeof actualizarDashboard === 'function') actualizarDashboard();
+                if(typeof actualizarListadoProductos === 'function') actualizarListadoProductos();
+            }
+            return agregados;
         }
 
         // ACTUALIZAR SELECT DE PRODUCTOS DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
@@ -5777,6 +6020,60 @@
         document.addEventListener('gesturestart', function(e) {
             e.preventDefault(); // gesto de pellizco en WebViews basados en WebKit
         });
+
+        // ------------------------------------------------------------------
+        // Mantener el contenido centrado al girar la pantalla.
+        // Bug típico de WebView (Android): al rotar, el navegador recalcula el
+        // ancho pero mantiene el scroll horizontal que tenía antes, así que el
+        // .container (ya centrado por CSS) se ve empujado hacia un lado hasta
+        // que uno toca o hace scroll manualmente. Esto corrige eso solo, apenas
+        // ocurre el giro.
+        // ------------------------------------------------------------------
+        function recentrarTrasGiro() {
+            window.scrollTo(0, window.scrollY); // corrige el eje X sin mover el Y
+            document.documentElement.scrollLeft = 0;
+            document.body.scrollLeft = 0;
+        }
+
+        window.addEventListener('orientationchange', function() {
+            // Se ejecuta dos veces: apenas cambia el ángulo y otra vez cuando el
+            // WebView ya terminó de recalcular el nuevo ancho/alto (puede tardar
+            // unos milisegundos en algunos dispositivos).
+            recentrarTrasGiro();
+            setTimeout(recentrarTrasGiro, 150);
+            setTimeout(recentrarTrasGiro, 400);
+        });
+
+        // Respaldo para WebViews que no disparan 'orientationchange' de forma
+        // confiable: 'resize' también se dispara al rotar.
+        let temporizadorResize = null;
+        window.addEventListener('resize', function() {
+            clearTimeout(temporizadorResize);
+            temporizadorResize = setTimeout(recentrarTrasGiro, 150);
+        });
+
+        // ------------------------------------------------------------------
+        // Confirmación visual de guardado. Se envuelve localStorage.setItem UNA
+        // sola vez, así que cualquier función existente (o futura) que guarde
+        // productos, movimientos, configuración, etc. dispara automáticamente
+        // la insignia "💾 Guardado hh:mm:ss" en la esquina del header, sin haber
+        // tenido que agregar el aviso a mano en cada una de esas funciones.
+        // ------------------------------------------------------------------
+        (function activarIndicadorGuardado() {
+            const setItemOriginal = localStorage.setItem.bind(localStorage);
+            let temporizadorIndicador = null;
+
+            localStorage.setItem = function(clave, valor) {
+                setItemOriginal(clave, valor);
+                const el = document.getElementById('indicadorGuardado');
+                if (!el) return;
+                const hora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                el.textContent = '💾 Guardado ' + hora;
+                el.classList.add('visible');
+                clearTimeout(temporizadorIndicador);
+                temporizadorIndicador = setTimeout(() => el.classList.remove('visible'), 2000);
+            };
+        })();
     </script>
 </body>
 </html>
