@@ -1075,6 +1075,23 @@
             margin-top: 10px;
         }
 
+        .btn-destino-transf {
+            padding: 9px 6px;
+            border: 2px solid #ddd;
+            background: white;
+            color: #555;
+            border-radius: 10px;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn-destino-transf.activo {
+            border-color: #667eea;
+            background: #eef0fe;
+            color: #667eea;
+        }
+
         .btn-transferir {
             width: 100%;
             background: #667eea;
@@ -1330,6 +1347,7 @@
             <button class="tab-btn" onclick="cambiarTab('reportes', this)"><span class="tab-icon">📋</span><span class="tab-label">Reportes</span></button>
             <button class="tab-btn" onclick="cambiarTab('cmpPiso', this)"><span class="tab-icon">🔄</span><span class="tab-label">Piso vs Almacén</span></button>
             <button class="tab-btn" onclick="cambiarTab('conteoAlmacen', this)"><span class="tab-icon">🧮</span><span class="tab-label">Conteo Almacén</span></button>
+            <button class="tab-btn" onclick="cambiarTab('almacenPrincipal', this)"><span class="tab-icon">🏭</span><span class="tab-label">Almacén Principal</span></button>
             <button class="tab-btn" onclick="cambiarTab('respaldo', this)"><span class="tab-icon">💾</span><span class="tab-label">Respaldo</span></button>
             <button class="tab-btn" onclick="cambiarTab('sincronizacion', this)"><span class="tab-icon">🌐</span><span class="tab-label">Stock en Vivo</span></button>
         </div>
@@ -1638,6 +1656,95 @@
                 </div>
             </div>
 
+            <!-- ALMACÉN PRINCIPAL (bodega separada, ver / actualizar / transferir a Punto de Venta) -->
+            <div id="almacenPrincipal" class="tab-content">
+                <h2>🏭 Almacén Principal</h2>
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 16px; margin-bottom: 16px; border-left: 4px solid #2196f3;">
+                    <strong>💡 Qué es esto:</strong> una bodega separada del catálogo de "Productos" (que es tu Punto de Venta). La actualizas importando un Excel con Nombre, SKU y Cantidad — cada importación pisa la cantidad con lo que traiga el Excel. Desde aquí puedes transferir existencia hacia el Punto de Venta.
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="abrirImportadorExcel('almacenPrincipal')">📥 Actualizar por Excel</button>
+                    <button class="btn btn-secondary" onclick="abrirModalAgregarAlmacenPrincipal()">➕ Agregar producto</button>
+                </div>
+
+                <input type="text" id="buscadorAlmacenPrincipal" placeholder="🔍 Buscar producto o SKU..." style="margin-top: 14px;" oninput="actualizarAlmacenPrincipalList()">
+
+                <div id="resumenTransferenciasAlmacenPrincipal" style="display:none; margin-top: 14px;"></div>
+
+                <div style="margin: 14px 0;">
+                    <strong>Total de productos: <span id="totalAlmacenPrincipal">0</span></strong>
+                </div>
+
+                <div id="tarjetasAlmacenPrincipal"></div>
+
+                <div id="sinAlmacenPrincipal" class="empty-state" style="display: none;">
+                    <div class="empty-state-icon">🏭</div>
+                    <p>Todavía no hay productos en el Almacén Principal. Impórtalos con el botón de arriba.</p>
+                </div>
+            </div>
+
+            <!-- MODAL AGREGAR/EDITAR PRODUCTO DEL ALMACÉN PRINCIPAL -->
+            <div id="modalAgregarAlmacenPrincipal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                <div class="modal-box" style="max-width: 420px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <h2 id="tituloModalAlmacenPrincipal" style="margin: 0; font-size: 19px;">➕ Agregar producto</h2>
+                        <button onclick="cerrarModalAgregarAlmacenPrincipal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">✕</button>
+                    </div>
+                    <input type="hidden" id="almPrincipalIdxOriginal" value="">
+                    <div class="form-group">
+                        <label for="almPrincipalNombre">Nombre del producto *</label>
+                        <input type="text" id="almPrincipalNombre">
+                    </div>
+                    <div class="form-group">
+                        <label for="almPrincipalSku">SKU / Código</label>
+                        <input type="text" id="almPrincipalSku">
+                    </div>
+                    <div class="form-group">
+                        <label for="almPrincipalCantidad">Cantidad</label>
+                        <input type="number" id="almPrincipalCantidad" min="0" step="1" inputmode="numeric" value="0">
+                    </div>
+                    <div id="mensajeModalAlmacenPrincipal"></div>
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button type="button" class="btn btn-primary" onclick="guardarAlmacenPrincipalDesdeModal()">✅ Guardar</button>
+                        <button type="button" class="btn btn-secondary" onclick="cerrarModalAgregarAlmacenPrincipal()">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL TRANSFERIR ALMACÉN PRINCIPAL -> PUNTO DE VENTA -->
+            <div id="modalTransferirAlmacenPrincipal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                <div class="modal-box" style="max-width: 420px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <h2 style="margin: 0; font-size: 19px;">🔄 Transferir del Almacén Principal</h2>
+                        <button onclick="cerrarModalTransferirAlmacenPrincipal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">✕</button>
+                    </div>
+                    <p id="transferirAlmPrincipalNombre" style="font-size: 14px; color: #444; font-weight: 600; margin-bottom: 4px;"></p>
+                    <p id="transferirAlmPrincipalStockInfo" style="font-size: 12.5px; color: #888; margin-bottom: 14px;"></p>
+
+                    <div class="form-group">
+                        <label>¿A dónde lo mueves?</label>
+                        <div style="display:flex; gap:8px;">
+                            <button type="button" id="btnDestinoAlmacenPiso" class="btn-destino-transf activo" onclick="elegirDestinoTransferAlmPrincipal('almacen')" style="flex:1;">🏬 Almacén Piso Venta</button>
+                            <button type="button" id="btnDestinoPisoVenta" class="btn-destino-transf" onclick="elegirDestinoTransferAlmPrincipal('piso')" style="flex:1;">🧍 Piso de Venta</button>
+                        </div>
+                        <p id="avisoDestinoPisoVenta" style="display:none; font-size:11.5px; color:#e08b00; margin-top:6px;">⚠️ Este producto no tiene dato de Piso de Venta todavía. Impórtalo primero en la pestaña "Piso vs Almacén".</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="transferirAlmPrincipalCantidad">Cantidad a transferir</label>
+                        <input type="number" id="transferirAlmPrincipalCantidad" min="1" step="1" inputmode="numeric">
+                    </div>
+
+                    <div id="mensajeTransferirAlmPrincipal"></div>
+
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button type="button" class="btn btn-primary" onclick="confirmarTransferirAlmacenPrincipal()">✅ Transferir</button>
+                        <button type="button" class="btn btn-secondary" onclick="cerrarModalTransferirAlmacenPrincipal()">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- HISTORIAL EDITABLE -->
             <div id="historial" class="tab-content">
                 <h2>📜 Historial Editable - Elimina Movimientos Equivocados</h2>
@@ -1708,7 +1815,7 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="producto">Producto *</label>
-                            <input type="text" id="producto" required
+                            <input type="text" id="producto" list="listaProductosRegistro" required
                                    placeholder="🔍 Escribe para buscar un producto..." autocomplete="off"
                                    oninput="autocompletarCamposProducto(); mostrarSugerenciasProducto(this)"
                                    onchange="autocompletarCamposProducto()"
@@ -2359,6 +2466,18 @@
             localStorage.setItem('productos', JSON.stringify(lista));
         }
 
+        // ===== ALMACÉN PRINCIPAL (bodega separada, se actualiza por Excel: nombre, SKU, cantidad) =====
+        // Es una lista independiente del catálogo de arriba (que ahora funciona como "Punto de Venta").
+        // No tiene movimientos ni historial: la cantidad se pisa directo cada vez que se importa el Excel,
+        // o se descuenta al transferir hacia el Punto de Venta.
+        function cargarAlmacenPrincipal() {
+            return JSON.parse(localStorage.getItem('almacenPrincipal')) || [];
+        }
+
+        function guardarAlmacenPrincipal(lista) {
+            localStorage.setItem('almacenPrincipal', JSON.stringify(lista));
+        }
+
         // Escapa un texto para poder meterlo con seguridad dentro de un onclick="fn('texto')":
         // primero lo escapa como string JS (comillas simples y barras invertidas), y después
         // como atributo HTML (comillas dobles, &, <, >). Así los nombres/SKU con caracteres
@@ -2663,6 +2782,9 @@
             } else if(tabName === 'conteoAlmacen') {
                 actualizarBotonOcultarAgotadosConteo();
                 renderizarConteoAlmacen();
+            } else if(tabName === 'almacenPrincipal') {
+                actualizarAlmacenPrincipalList();
+                renderizarResumenTransferenciasAlmacenPrincipal();
             }
         }
 
@@ -3283,6 +3405,11 @@
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
                     stock: calcularStockProducto(p.nombre)
+                })),
+                almacenPrincipal: cargarAlmacenPrincipal().map(p => ({
+                    nombre: p.nombre,
+                    sku: p.sku || '',
+                    cantidad: p.cantidad
                 }))
             };
             firebaseStockRef.set(snapshot).catch(e => console.warn('No se pudo sincronizar con Firebase (revisa tu conexión):', e.message));
@@ -3458,10 +3585,15 @@
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
                     stock: calcularStockProducto(p.nombre)
+                })),
+                almacenPrincipal: cargarAlmacenPrincipal().map(p => ({
+                    nombre: p.nombre,
+                    sku: p.sku || '',
+                    cantidad: p.cantidad
                 }))
             };
 
-            const huellaActual = JSON.stringify(snapshot.productos);
+            const huellaActual = JSON.stringify(snapshot.productos) + '|' + JSON.stringify(snapshot.almacenPrincipal);
             if(huellaActual === ultimoSnapshotGitHub) return; // no cambió nada, no hace falta subir
 
             sincronizandoGitHub = true;
@@ -4444,7 +4576,8 @@
                 fecha_respaldo: new Date().toISOString(),
                 version: '2.1',
                 movimientos: cargarDatos(),
-                productos: cargarProductos()
+                productos: cargarProductos(),
+                almacenPrincipal: cargarAlmacenPrincipal()
             };
             
             descargarArchivo(
@@ -4465,7 +4598,8 @@
                 fecha_respaldo: new Date().toISOString(),
                 version: '2.1',
                 movimientos: cargarDatos(),
-                productos: cargarProductos()
+                productos: cargarProductos(),
+                almacenPrincipal: cargarAlmacenPrincipal()
             };
             const nombreArchivoInterno = `respaldo_inventario_${new Date().toISOString().split('T')[0]}.json`;
             const contenidoJson = JSON.stringify(datos, null, 2);
@@ -4650,6 +4784,9 @@
 
                     localStorage.setItem('movimientos', JSON.stringify(movimientos));
                     localStorage.setItem('productos', JSON.stringify(productos));
+                    if(datos.almacenPrincipal) {
+                        localStorage.setItem('almacenPrincipal', JSON.stringify(datos.almacenPrincipal));
+                    }
                     location.reload();
                 } catch(error) {
                     mostrarMensajeRespaldo('Error al restaurar: archivo inválido', 'error');
@@ -4776,6 +4913,9 @@
             if(modo === 'productos') {
                 titulo.textContent = '📥 Importar Productos desde Excel';
                 desc.textContent = 'Agrega productos nuevos al catálogo (Nombre + SKU). Los que ya existan (por nombre o SKU repetido) se dejan igual — nunca se borra ni se modifica nada.';
+            } else if(modo === 'almacenPrincipal') {
+                titulo.textContent = '📥 Actualizar Almacén Principal desde Excel';
+                desc.textContent = 'Sube el Excel con Nombre, SKU y Cantidad de esta bodega. Si el producto ya existe (por SKU o nombre) se le pisa la cantidad; si no existe, se agrega nuevo.';
             } else {
                 titulo.textContent = '📥 Importar Excel del Punto de Venta';
                 desc.textContent = 'Sube el Excel con la cantidad total de cada producto (almacén + piso de venta juntos) para calcular lo que debería quedar en el piso.';
@@ -4913,6 +5053,13 @@
                 return [
                     { id: 'nombre', label: 'Nombre del producto', requerido: true },
                     { id: 'sku', label: 'SKU / Código', requerido: false }
+                ];
+            }
+            if(modo === 'almacenPrincipal') {
+                return [
+                    { id: 'nombre', label: 'Nombre del producto', requerido: true },
+                    { id: 'sku', label: 'SKU / Código', requerido: false },
+                    { id: 'cantidad', label: 'Cantidad', requerido: true }
                 ];
             }
             return [
@@ -5082,6 +5229,8 @@
 
             if(modo === 'productos') {
                 procesarImportacionProductosDesdeExcel(filasMapeadas);
+            } else if(modo === 'almacenPrincipal') {
+                procesarImportacionAlmacenPrincipalDesdeExcel(filasMapeadas);
             } else {
                 procesarComparacionPisoDesdeExcel(filasMapeadas);
             }
@@ -5293,6 +5442,484 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        // ===== ALMACÉN PRINCIPAL (bodega separada) =====
+        // Busca el producto correspondiente en el catálogo (Punto de Venta / "Almacén de Piso
+        // de Venta"), primero por SKU y si no por nombre, y devuelve su stock actual calculado.
+        function obtenerStockPuntoVentaPara(pAlmacenPrincipal) {
+            const productos = cargarProductos();
+            let producto = null;
+            if(pAlmacenPrincipal.sku && pAlmacenPrincipal.sku.trim()) {
+                producto = productos.find(x => (x.sku || '').trim().toUpperCase() === pAlmacenPrincipal.sku.trim().toUpperCase());
+            }
+            if(!producto) producto = buscarProductoPorNombre(pAlmacenPrincipal.nombre);
+            if(!producto) return null;
+            return calcularStockProducto(producto.nombre);
+        }
+
+        // Busca cuánto hay en el Piso de Venta, si ya se hizo una comparación en la pestaña
+        // "Piso vs Almacén" en esta sesión (si no se ha importado ese Excel todavía, no hay dato).
+        function obtenerPisoVentaPara(pAlmacenPrincipal) {
+            if(!resultadoComparacionPiso || resultadoComparacionPiso.length === 0) return undefined;
+            const nombreLower = pAlmacenPrincipal.nombre.trim().toLowerCase();
+            const skuUpper = (pAlmacenPrincipal.sku || '').trim().toUpperCase();
+            const r = resultadoComparacionPiso.find(x =>
+                (skuUpper && (x.sku || '').trim().toUpperCase() === skuUpper) ||
+                x.nombre.trim().toLowerCase() === nombreLower
+            );
+            return r ? r.piso : null;
+        }
+
+        function actualizarAlmacenPrincipalList() {
+            const lista = cargarAlmacenPrincipal();
+            const filtro = (document.getElementById('buscadorAlmacenPrincipal').value || '').trim().toLowerCase();
+            const filtrados = lista
+                .map((p, idx) => ({ ...p, idx }))
+                .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
+                .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+            document.getElementById('totalAlmacenPrincipal').textContent = lista.length;
+            const cont = document.getElementById('tarjetasAlmacenPrincipal');
+            const vacio = document.getElementById('sinAlmacenPrincipal');
+
+            if(lista.length === 0) {
+                cont.innerHTML = '';
+                vacio.style.display = 'block';
+                return;
+            }
+            vacio.style.display = 'none';
+
+            if(filtrados.length === 0) {
+                cont.innerHTML = '<p style="text-align:center; color:#999; padding: 20px 0;">No hay productos que coincidan con la búsqueda.</p>';
+                return;
+            }
+
+            cont.innerHTML = filtrados.map(p => {
+                const stockPV = obtenerStockPuntoVentaPara(p);
+                const piso = obtenerPisoVentaPara(p);
+                let estado, etiqueta;
+                if(stockPV === null) {
+                    estado = 'noEncontrado';
+                    etiqueta = '<span style="color:#999;">⚪ No existe en Almacén Piso Venta</span>';
+                } else if(stockPV <= 0) {
+                    estado = 'agotado';
+                    etiqueta = '<span style="color:#d32f2f;">🔴 Agotado en Almacén Piso Venta</span>';
+                } else {
+                    estado = 'ok';
+                    etiqueta = '<span style="color:#4caf50;">🟢 Con existencia</span>';
+                }
+
+                let pisoTexto;
+                if(piso === undefined) pisoTexto = '<span style="color:#bbb; font-size:11px;">Importa Excel en "Piso vs Almacén"</span>';
+                else if(piso === null) pisoTexto = '-';
+                else pisoTexto = `<span style="${piso <= 0 ? 'color:#c0392b;' : ''}">${piso}</span>`;
+
+                return `
+                    <div class="cmp-card ${estado}">
+                        <div class="cmp-card-top">
+                            <div class="cmp-card-nombre">${escaparHtmlSimple(p.nombre)}</div>
+                            <div class="cmp-card-estado">${etiqueta}</div>
+                        </div>
+                        <div class="cmp-card-qtys">
+                            <div class="cmp-qty">
+                                <span class="cmp-qty-label">Almacén Principal</span>
+                                <span class="cmp-qty-val">${p.cantidad}</span>
+                            </div>
+                            <div class="cmp-qty">
+                                <span class="cmp-qty-label">Almacén Piso Venta</span>
+                                <span class="cmp-qty-val">${stockPV === null ? '-' : stockPV}</span>
+                            </div>
+                            <div class="cmp-qty">
+                                <span class="cmp-qty-label">Piso de Venta</span>
+                                <span class="cmp-qty-val">${pisoTexto}</span>
+                            </div>
+                        </div>
+                        <div class="cmp-card-footer" style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button type="button" class="btn-transferir" style="flex:1; min-width:150px;" onclick="abrirModalTransferirAlmacenPrincipal(${p.idx})" ${p.cantidad > 0 ? '' : 'disabled'}>🔄 Transferir al Almacén Piso Venta</button>
+                            <button type="button" class="btn btn-secondary" style="padding:8px 12px; font-size:12px;" onclick="abrirModalAgregarAlmacenPrincipal(${p.idx})">✏️ Editar</button>
+                            <button type="button" class="btn btn-danger" style="padding:8px 12px; font-size:12px;" onclick="eliminarProductoAlmacenPrincipal(${p.idx})">🗑️</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function abrirModalAgregarAlmacenPrincipal(idx) {
+            document.getElementById('mensajeModalAlmacenPrincipal').innerHTML = '';
+            document.getElementById('almPrincipalIdxOriginal').value = (idx === undefined) ? '' : idx;
+            if(idx === undefined) {
+                document.getElementById('tituloModalAlmacenPrincipal').textContent = '➕ Agregar producto';
+                document.getElementById('almPrincipalNombre').value = '';
+                document.getElementById('almPrincipalSku').value = '';
+                document.getElementById('almPrincipalCantidad').value = 0;
+            } else {
+                const lista = cargarAlmacenPrincipal();
+                const p = lista[idx];
+                if(!p) return;
+                document.getElementById('tituloModalAlmacenPrincipal').textContent = '✏️ Editar producto';
+                document.getElementById('almPrincipalNombre').value = p.nombre;
+                document.getElementById('almPrincipalSku').value = p.sku || '';
+                document.getElementById('almPrincipalCantidad').value = p.cantidad;
+            }
+            document.getElementById('modalAgregarAlmacenPrincipal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function cerrarModalAgregarAlmacenPrincipal() {
+            document.getElementById('modalAgregarAlmacenPrincipal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        function guardarAlmacenPrincipalDesdeModal() {
+            const msg = document.getElementById('mensajeModalAlmacenPrincipal');
+            const nombre = document.getElementById('almPrincipalNombre').value.trim();
+            const sku = document.getElementById('almPrincipalSku').value.trim();
+            const cantidad = parseFloat(document.getElementById('almPrincipalCantidad').value) || 0;
+            const idxOriginalRaw = document.getElementById('almPrincipalIdxOriginal').value;
+            const idxOriginal = idxOriginalRaw === '' ? null : parseInt(idxOriginalRaw);
+
+            if(!nombre) {
+                msg.innerHTML = '<div class="alert alert-error">Falta el nombre del producto.</div>';
+                return;
+            }
+
+            let lista = cargarAlmacenPrincipal();
+            const yaExiste = lista.findIndex((p, i) => i !== idxOriginal && (
+                p.nombre.trim().toLowerCase() === nombre.toLowerCase() ||
+                (sku && p.sku && p.sku.trim().toUpperCase() === sku.toUpperCase())
+            ));
+            if(yaExiste !== -1) {
+                msg.innerHTML = '<div class="alert alert-error">Ya hay otro producto en el Almacén Principal con ese nombre o SKU.</div>';
+                return;
+            }
+
+            if(idxOriginal === null) {
+                lista.push({ nombre, sku, cantidad });
+            } else {
+                lista[idxOriginal] = { nombre, sku, cantidad };
+            }
+            guardarAlmacenPrincipal(lista);
+            cerrarModalAgregarAlmacenPrincipal();
+            actualizarAlmacenPrincipalList();
+            actualizarDashboard();
+        }
+
+        function eliminarProductoAlmacenPrincipal(idx) {
+            if(!confirm('¿Eliminar este producto del Almacén Principal?')) return;
+            let lista = cargarAlmacenPrincipal();
+            lista.splice(idx, 1);
+            guardarAlmacenPrincipal(lista);
+            actualizarAlmacenPrincipalList();
+            actualizarDashboard();
+        }
+
+        // Actualiza cantidades del Almacén Principal desde un Excel: si el producto ya
+        // existe (por SKU, o por nombre si no hay SKU), le PISA la cantidad con la del
+        // Excel. Si no existe, lo agrega nuevo. A diferencia de "Importar Productos", aquí
+        // sí se sobreescribe la cantidad cada vez, porque este Excel es la fuente de verdad
+        // de cuánto hay en esta bodega.
+        function procesarImportacionAlmacenPrincipalDesdeExcel(filas) {
+            let lista = cargarAlmacenPrincipal();
+            const porSku = new Map();
+            const porNombre = new Map();
+            lista.forEach((p, i) => {
+                if(p.sku && p.sku.trim()) porSku.set(p.sku.trim().toUpperCase(), i);
+                porNombre.set(p.nombre.trim().toLowerCase(), i);
+            });
+
+            let actualizados = 0, agregados = 0, omitidos = 0;
+
+            filas.forEach(fila => {
+                const nombre = (fila.nombre || '').trim();
+                const sku = (fila.sku || '').trim();
+                const cantidad = parseFloat(fila.cantidad);
+
+                if(!nombre || isNaN(cantidad)) { omitidos++; return; }
+
+                let idxExistente = -1;
+                if(sku && porSku.has(sku.toUpperCase())) idxExistente = porSku.get(sku.toUpperCase());
+                else if(porNombre.has(nombre.toLowerCase())) idxExistente = porNombre.get(nombre.toLowerCase());
+
+                if(idxExistente !== -1) {
+                    lista[idxExistente].cantidad = cantidad;
+                    if(sku) lista[idxExistente].sku = sku;
+                    actualizados++;
+                } else {
+                    lista.push({ nombre, sku, cantidad });
+                    if(sku) porSku.set(sku.toUpperCase(), lista.length - 1);
+                    porNombre.set(nombre.toLowerCase(), lista.length - 1);
+                    agregados++;
+                }
+            });
+
+            guardarAlmacenPrincipal(lista);
+            actualizarAlmacenPrincipalList();
+            actualizarDashboard();
+
+            let mensaje = `✅ ${actualizados} producto(s) actualizado(s) y ${agregados} agregado(s) nuevo(s).`;
+            if(omitidos > 0) mensaje += `\n⚠️ ${omitidos} fila(s) sin nombre o sin cantidad válida, se ignoraron.`;
+            alert(mensaje);
+        }
+
+        // ===== TRANSFERIR ALMACÉN PRINCIPAL -> ALMACÉN PISO VENTA (catálogo) o PISO DE VENTA (directo) =====
+        let transferirAlmPrincipalIdxActual = null;
+        let destinoTransferAlmPrincipal = 'almacen'; // 'almacen' | 'piso'
+
+        function elegirDestinoTransferAlmPrincipal(destino) {
+            destinoTransferAlmPrincipal = destino;
+            document.getElementById('btnDestinoAlmacenPiso').classList.toggle('activo', destino === 'almacen');
+            document.getElementById('btnDestinoPisoVenta').classList.toggle('activo', destino === 'piso');
+
+            const lista = cargarAlmacenPrincipal();
+            const p = lista[transferirAlmPrincipalIdxActual];
+            const aviso = document.getElementById('avisoDestinoPisoVenta');
+            if(p && destino === 'piso' && obtenerPisoVentaPara(p) === undefined) {
+                aviso.style.display = 'block';
+            } else {
+                aviso.style.display = 'none';
+            }
+        }
+
+        function abrirModalTransferirAlmacenPrincipal(idx) {
+            const lista = cargarAlmacenPrincipal();
+            const p = lista[idx];
+            if(!p) return;
+            transferirAlmPrincipalIdxActual = idx;
+
+            document.getElementById('transferirAlmPrincipalNombre').textContent = p.nombre;
+            document.getElementById('transferirAlmPrincipalStockInfo').textContent = `Hay ${p.cantidad} en el Almacén Principal ahora mismo.`;
+            const input = document.getElementById('transferirAlmPrincipalCantidad');
+            input.value = '';
+            input.max = p.cantidad;
+            document.getElementById('mensajeTransferirAlmPrincipal').innerHTML = '';
+
+            elegirDestinoTransferAlmPrincipal('almacen');
+
+            document.getElementById('modalTransferirAlmacenPrincipal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+            setTimeout(() => input.focus(), 50);
+        }
+
+        function cerrarModalTransferirAlmacenPrincipal() {
+            document.getElementById('modalTransferirAlmacenPrincipal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            transferirAlmPrincipalIdxActual = null;
+        }
+
+        // Al transferir: resta del Almacén Principal, y según el destino elegido:
+        // - "almacen": registra una ENTRADA en el catálogo (Almacén Piso Venta) — si el
+        //   producto no existe todavía ahí, se crea solo, para no perder el movimiento.
+        // - "piso": no toca el catálogo para nada. Solo suma directo al dato de Piso de Venta
+        //   que ya se calculó en la pestaña "Piso vs Almacén" (requiere haber importado ese
+        //   Excel primero, porque el piso no es un número que se guarde aparte).
+        function confirmarTransferirAlmacenPrincipal() {
+            const msg = document.getElementById('mensajeTransferirAlmPrincipal');
+            let lista = cargarAlmacenPrincipal();
+            const p = lista[transferirAlmPrincipalIdxActual];
+            if(!p) { cerrarModalTransferirAlmacenPrincipal(); return; }
+
+            const cantidad = parseFloat(document.getElementById('transferirAlmPrincipalCantidad').value);
+            if(!cantidad || cantidad <= 0) {
+                msg.innerHTML = '<div class="alert alert-error">Indica una cantidad válida.</div>';
+                return;
+            }
+            if(cantidad > p.cantidad) {
+                msg.innerHTML = `<div class="alert alert-error">Solo hay ${p.cantidad} en el Almacén Principal. No puedes transferir ${cantidad}.</div>`;
+                return;
+            }
+
+            if(destinoTransferAlmPrincipal === 'piso') {
+                const r = resultadoComparacionPiso.find(x =>
+                    (p.sku && (x.sku || '').trim().toUpperCase() === p.sku.trim().toUpperCase()) ||
+                    x.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase()
+                );
+                if(!r || r.piso === null) {
+                    msg.innerHTML = '<div class="alert alert-error">Este producto no tiene dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".</div>';
+                    return;
+                }
+
+                r.piso += cantidad;
+                if(r.total !== null) r.total += cantidad;
+                const minimo = 10;
+                if(r.piso <= 0) r.estado = 'agotado';
+                else if(r.piso <= minimo) r.estado = 'bajo';
+                else r.estado = 'ok';
+
+                p.cantidad -= cantidad;
+                guardarAlmacenPrincipal(lista);
+
+                registrarTransferenciaSesionAlmacenPrincipal(p.nombre, cantidad, '', 'piso');
+
+                cerrarModalTransferirAlmacenPrincipal();
+                actualizarAlmacenPrincipalList();
+                const contResumenPiso = document.getElementById('resumenComparacionPiso');
+                if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+                if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
+                actualizarDashboard();
+                mostrarMensaje(`✅ Se transfirieron ${cantidad} de "${p.nombre}" directo al Piso de Venta.`, 'success');
+                return;
+            }
+
+            let productos = cargarProductos();
+            let producto = buscarProductoPorNombre(p.nombre);
+            if(!producto && p.sku) {
+                producto = productos.find(x => (x.sku || '').trim().toUpperCase() === p.sku.trim().toUpperCase());
+            }
+            if(!producto) {
+                // No existe todavía en el catálogo de Almacén Piso Venta: se crea solo, para no perder la transferencia.
+                producto = {
+                    nombre: p.nombre,
+                    sku: p.sku || generarSkuUnico('Sin categoría', new Set(productos.filter(x => x.sku).map(x => x.sku.trim().toUpperCase()))),
+                    categoria: 'Sin categoría', unidad: 'piezas',
+                    stockInicial: 0, stockMinimo: 10, fechaCreacion: new Date().toISOString()
+                };
+                productos.push(producto);
+                guardarProductosCatalogo(productos);
+            }
+
+            const movimiento = {
+                id: Date.now(),
+                tipo: 'entrada',
+                fecha: new Date().toISOString().split('T')[0],
+                producto: producto.nombre,
+                cantidad: cantidad,
+                unidad: producto.unidad,
+                referencia: producto.sku,
+                categoria: producto.categoria || 'Sin categoría',
+                observaciones: 'Transferencia desde Almacén Principal',
+                registradoPor: localStorage.getItem('ultimoRegistradoPor') || ''
+            };
+            let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
+            movimientos.push(movimiento);
+            localStorage.setItem('movimientos', JSON.stringify(movimientos));
+
+            p.cantidad -= cantidad;
+            guardarAlmacenPrincipal(lista);
+
+
+            registrarTransferenciaSesionAlmacenPrincipal(p.nombre, cantidad, producto.unidad, 'almacen');
+
+            cerrarModalTransferirAlmacenPrincipal();
+            actualizarAlmacenPrincipalList();
+            actualizarProductosList();
+            actualizarListadoProductos();
+            actualizarDashboard();
+            mostrarMensaje(`✅ Se transfirieron ${cantidad} de "${p.nombre}" al Almacén Piso Venta.`, 'success');
+        }
+
+        // ===== RESUMEN DE TRANSFERENCIAS ALMACÉN PRINCIPAL -> PUNTO DE VENTA (de esta sesión) =====
+        function cargarTransferenciasSesionAlmacenPrincipal() {
+            try {
+                return JSON.parse(localStorage.getItem('transferenciasSesionAlmacenPrincipal')) || [];
+            } catch(e) {
+                return [];
+            }
+        }
+
+        function guardarTransferenciasSesionAlmacenPrincipal(lista) {
+            localStorage.setItem('transferenciasSesionAlmacenPrincipal', JSON.stringify(lista));
+        }
+
+        function registrarTransferenciaSesionAlmacenPrincipal(nombreProducto, cantidad, unidad, destino) {
+            const lista = cargarTransferenciasSesionAlmacenPrincipal();
+            lista.push({ nombre: nombreProducto, cantidad, unidad, destino: destino || 'almacen', hora: new Date().toISOString() });
+            guardarTransferenciasSesionAlmacenPrincipal(lista);
+            renderizarResumenTransferenciasAlmacenPrincipal();
+        }
+
+        function agruparTransferenciasAlmacenPrincipal(lista) {
+            const porProducto = new Map();
+            lista.forEach(t => {
+                const clave = t.nombre + '|' + (t.destino || 'almacen');
+                const actual = porProducto.get(clave) || { nombre: t.nombre, unidad: t.unidad, destino: t.destino || 'almacen', cantidad: 0 };
+                actual.cantidad += t.cantidad;
+                porProducto.set(clave, actual);
+            });
+            return Array.from(porProducto.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+        }
+
+        function renderizarResumenTransferenciasAlmacenPrincipal() {
+            const cont = document.getElementById('resumenTransferenciasAlmacenPrincipal');
+            if(!cont) return;
+            const lista = cargarTransferenciasSesionAlmacenPrincipal();
+
+            if(lista.length === 0) {
+                cont.style.display = 'none';
+                cont.innerHTML = '';
+                return;
+            }
+
+            // Agrupa por producto + destino, por si se transfirió el mismo varias veces (o a
+            // los dos destinos), para que el resumen final sea un total limpio.
+            const agrupado = agruparTransferenciasAlmacenPrincipal(lista);
+            const alAlmacen = agrupado.filter(p => p.destino === 'almacen');
+            const alPiso = agrupado.filter(p => p.destino === 'piso');
+            const totalUnidades = agrupado.reduce((s, p) => s + p.cantidad, 0);
+
+            const bloque = (titulo, items) => items.length === 0 ? '' : `
+                <div style="margin-top:8px;">
+                    <div style="font-size:12.5px; font-weight:700; color:#555; margin-bottom:4px;">${titulo}</div>
+                    <div class="resumen-transf-lista">
+                        ${items.map(p => `
+                            <div class="resumen-transf-item">
+                                <span class="resumen-transf-item-nombre">${escaparHtmlSimple(p.nombre)}</span>
+                                <span class="resumen-transf-item-cant">${p.cantidad} ${escaparHtmlSimple(p.unidad || '')}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            cont.style.display = 'block';
+            cont.innerHTML = `
+                <div class="resumen-transf-box">
+                    <div class="resumen-transf-header">
+                        <div class="resumen-transf-titulo">📋 Resumen de lo transferido</div>
+                    </div>
+                    <div class="resumen-transf-total">
+                        <strong>${agrupado.length}</strong> producto(s), <strong>${totalUnidades}</strong> unidad(es) en total.
+                    </div>
+                    ${bloque('🏬 Al Almacén Piso Venta', alAlmacen)}
+                    ${bloque('🧍 Directo al Piso de Venta', alPiso)}
+                    <div class="button-group">
+                        <button class="btn btn-secondary" style="background:#25d366; color:#fff;" onclick="compartirResumenTransferenciasAlmacenPrincipalWhatsApp()">💬 Compartir por WhatsApp</button>
+                        <button class="btn btn-secondary" onclick="limpiarResumenTransferenciasAlmacenPrincipal()">🗑️ Empezar de nuevo</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function limpiarResumenTransferenciasAlmacenPrincipal() {
+            if(!confirm('¿Borrar el resumen de transferencias de esta sesión? (Esto no afecta el stock, solo borra la lista.)')) return;
+            guardarTransferenciasSesionAlmacenPrincipal([]);
+            renderizarResumenTransferenciasAlmacenPrincipal();
+        }
+
+        function compartirResumenTransferenciasAlmacenPrincipalWhatsApp() {
+            const lista = cargarTransferenciasSesionAlmacenPrincipal();
+            if(lista.length === 0) return;
+
+            const agrupado = agruparTransferenciasAlmacenPrincipal(lista);
+            const alAlmacen = agrupado.filter(p => p.destino === 'almacen');
+            const alPiso = agrupado.filter(p => p.destino === 'piso');
+            const totalUnidades = agrupado.reduce((s, p) => s + p.cantidad, 0);
+
+            let texto = `📋 *Resumen de transferencias desde Almacén Principal* (${new Date().toLocaleDateString('es-ES')})\n\n`;
+            if(alAlmacen.length > 0) {
+                texto += `🏬 Al Almacén Piso Venta:\n`;
+                alAlmacen.forEach(p => { texto += `• ${p.nombre}: ${p.cantidad} ${p.unidad || ''}\n`; });
+                texto += '\n';
+            }
+            if(alPiso.length > 0) {
+                texto += `🧍 Directo al Piso de Venta:\n`;
+                alPiso.forEach(p => { texto += `• ${p.nombre}: ${p.cantidad} ${p.unidad || ''}\n`; });
+                texto += '\n';
+            }
+            texto += `Total: ${totalUnidades} unidad(es) en ${agrupado.length} producto(s).`;
+
+            const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
+            window.location.href = url;
         }
 
         // ===== TRANSFERIR ALMACÉN -> PISO DE VENTA (desde la comparación) =====
