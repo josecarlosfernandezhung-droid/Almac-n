@@ -826,6 +826,36 @@
             font-weight: 600;
         }
 
+        .transferencia-badge {
+            display: inline-block;
+            background: #bbdefb;
+            color: #1565c0;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .detalle-mov-fila {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 13.5px;
+        }
+        .detalle-mov-fila:last-child { border-bottom: none; }
+        .detalle-mov-fila span { color: #777; }
+        .detalle-mov-fila strong { text-align: right; }
+        .detalle-mov-fila.detalle-mov-ruta {
+            background: #eef6ff;
+            padding: 9px 10px;
+            border-radius: 10px;
+            border-bottom: none;
+            margin: 4px 0;
+        }
+
         .alert {
             padding: 15px;
             border-radius: 12px;
@@ -1759,6 +1789,7 @@
                         <option value="">Todos los tipos</option>
                         <option value="entrada">📥 Entradas</option>
                         <option value="salida">📤 Salidas</option>
+                        <option value="transferencia">🔀 Transferencias</option>
                     </select>
                     <button class="btn btn-secondary" onclick="limpiarFiltrosHistorial()">Limpiar Filtros</button>
                 </div>
@@ -1772,13 +1803,12 @@
                         <thead>
                             <tr>
                                 <th style="width: 15%;">Fecha</th>
-                                <th style="width: 12%;">Tipo</th>
-                                <th style="width: 25%;">Producto</th>
-                                <th style="width: 12%;">Cantidad</th>
-                                <th style="width: 12%;">Unidad</th>
-                                <th style="width: 13%;">Categoría</th>
+                                <th style="width: 14%;">Tipo</th>
+                                <th style="width: 30%;">Producto</th>
+                                <th style="width: 13%;">Cantidad</th>
+                                <th style="width: 13%;">Unidad</th>
                                 <th style="width: 10%;">Quién</th>
-                                <th style="width: 8%;">Acciones</th>
+                                <th style="width: 10%;">Acciones</th>
                             </tr>
                         </thead>
                         <tbody id="cuerpoHistorialEditable">
@@ -1789,6 +1819,21 @@
                 <div id="sinMovimientos" class="empty-state" style="display: none;">
                     <div class="empty-state-icon">📜</div>
                     <p>No hay movimientos registrados aún.</p>
+                </div>
+            </div>
+
+            <!-- MODAL DETALLE DE MOVIMIENTO (se abre al tocar cualquier fila del Historial) -->
+            <div id="modalDetalleMovimiento" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                <div class="modal-box" style="max-width: 420px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h2 style="margin: 0; font-size: 19px;">📋 Detalle del Movimiento</h2>
+                        <button onclick="cerrarModalDetalleMovimiento()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">✕</button>
+                    </div>
+                    <div id="detalleMovimientoContenido"></div>
+                    <div class="button-group" style="margin-top: 16px;">
+                        <button type="button" id="detalleMovimientoBtnEliminar" class="btn btn-danger">🗑️ Eliminar este movimiento</button>
+                        <button type="button" class="btn btn-secondary" onclick="cerrarModalDetalleMovimiento()">Cerrar</button>
+                    </div>
                 </div>
             </div>
 
@@ -2050,6 +2095,7 @@
                 <div id="resumenComparacionPiso" style="margin-top: 15px;"></div>
 
                 <div id="controlesComparacionPiso" style="display:none; margin-top: 15px;">
+                    <input type="text" id="buscadorComparacionPiso" placeholder="🔍 Buscar producto o SKU..." style="margin-bottom: 12px;" oninput="renderizarResultadoComparacion()">
                     <div class="button-group">
                         <select id="filtroComparacionPiso" onchange="renderizarResultadoComparacion()">
                             <option value="todos">Mostrar: Todos</option>
@@ -2442,6 +2488,11 @@
             actualizarProductosList();
             setInterval(actualizarDashboard, 30000); // Actualizar cada 30 segundos
 
+            // Restaura la comparación "Piso vs Almacén" guardada (si había una), para que
+            // no se pierda al recargar la app o cambiar de pestaña — sigue disponible hasta
+            // que se importe un Excel nuevo.
+            cargarResultadoComparacionPisoGuardado();
+
             // Respaldo automático (si el usuario lo activó en la pestaña Respaldo)
             actualizarInfoBackupAutomatico();
             revisarBackupAutomatico();
@@ -2499,6 +2550,18 @@
         }
 
         // Calcula el stock real de un producto: stock inicial + entradas - salidas
+        // Cuánto suma o resta un movimiento al stock del catálogo (Almacén Punto de Venta).
+        // Se usa en calcularStockProducto() y en cualquier otro lugar que recalcule stock
+        // recorriendo movimientos a mano, para que todos coincidan sobre cómo cuenta una
+        // transferencia (solo suma si su destino fue el catálogo; si fue directo al Piso
+        // de Venta, no pasó por aquí y no cuenta para nada).
+        function deltaStockMovimiento(m) {
+            if(m.tipo === 'entrada') return m.cantidad;
+            if(m.tipo === 'salida') return -m.cantidad;
+            if(m.tipo === 'transferencia') return m.destino === 'Almacén Punto de Venta' ? m.cantidad : 0;
+            return 0;
+        }
+
         function calcularStockProducto(nombreProducto) {
             const producto = buscarProductoPorNombre(nombreProducto);
             const stockInicial = producto ? (producto.stockInicial || 0) : 0;
@@ -2506,8 +2569,7 @@
             let neto = stockInicial;
             movimientos.forEach(m => {
                 if(m.producto.trim().toLowerCase() === (nombreProducto || '').trim().toLowerCase()) {
-                    if(m.tipo === 'entrada') neto += m.cantidad;
-                    else neto -= m.cantidad;
+                    neto += deltaStockMovimiento(m);
                 }
             });
             return neto;
@@ -2833,7 +2895,7 @@
 
             let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
             movimientos.push(movimiento);
-            localStorage.setItem('movimientos', JSON.stringify(movimientos));
+            guardarMovimientosYSync(movimientos);
 
             // Recordar el nombre para la próxima vez, para no tener que escribirlo cada vez
             if(registradoPor) localStorage.setItem('ultimoRegistradoPor', registradoPor);
@@ -2865,16 +2927,22 @@
                 return;
             }
             const ultimo = movimientos.reduce((max, m) => (m.id > max.id ? m : max), movimientos[0]);
-            const tipo = ultimo.tipo === 'entrada' ? '📥 ENTRADA' : '📤 SALIDA';
+            const tipo = ultimo.tipo === 'entrada' ? '📥 ENTRADA' : (ultimo.tipo === 'salida' ? '📤 SALIDA' : '🔀 TRANSFERENCIA');
             const mensaje = `¿Deshacer el último movimiento registrado?\n\n${tipo}\nProducto: ${ultimo.producto}\nCantidad: ${ultimo.cantidad} ${ultimo.unidad}\nFecha: ${formatearFecha(ultimo.fecha)}` +
+                (ultimo.tipo === 'transferencia' ? `\nDe: ${ultimo.origen} → A: ${ultimo.destino}` : '') +
                 (ultimo.registradoPor ? `\nRegistrado por: ${ultimo.registradoPor}` : '');
 
             if(confirm(mensaje)) {
                 const nuevosMovimientos = movimientos.filter(m => m.id !== ultimo.id);
-                localStorage.setItem('movimientos', JSON.stringify(nuevosMovimientos));
+                guardarMovimientosYSync(nuevosMovimientos);
+                if(ultimo.tipo === 'transferencia') deshacerEfectosTransferencia(ultimo);
+                else if(ultimo.tipo === 'salida' && ultimo.observaciones === 'Transferencia a piso de venta') {
+                    deshacerEfectosTransferenciaAPiso(ultimo);
+                }
                 actualizarDashboard();
                 actualizarProductosList();
                 actualizarHistorialEditable();
+                actualizarAlmacenPrincipalList();
                 mostrarMensaje('✅ Se deshizo el último movimiento correctamente', 'success');
             }
         }
@@ -2902,7 +2970,13 @@
                     if(m.producto.trim().toLowerCase() === p.nombre.trim().toLowerCase()) {
                         numMovimientos++;
                         if(m.tipo === 'entrada') entradas += m.cantidad;
-                        else salidas += m.cantidad;
+                        else if(m.tipo === 'salida') salidas += m.cantidad;
+                        else if(m.tipo === 'transferencia') {
+                            // Una transferencia solo afecta este stock (Almacén Punto de Venta)
+                            // si su destino fue justamente ese almacén. Si fue directo al Piso
+                            // de Venta, no cuenta aquí (no salió de este stock, nunca entró).
+                            if(m.destino === 'Almacén Punto de Venta') entradas += m.cantidad;
+                        }
                     }
                 });
                 const neto = (p.stockInicial || 0) + entradas - salidas;
@@ -2987,8 +3061,12 @@
             movimientosProducto.forEach(m => {
                 if(m.tipo === 'entrada') {
                     entradas += m.cantidad;
-                } else {
+                } else if(m.tipo === 'salida') {
                     salidas += m.cantidad;
+                } else if(m.tipo === 'transferencia') {
+                    // Igual que en actualizarListadoProductos: una transferencia solo suma
+                    // aquí si entró a este almacén (Almacén Punto de Venta).
+                    if(m.destino === 'Almacén Punto de Venta') entradas += m.cantidad;
                 }
             });
 
@@ -3081,25 +3159,33 @@
 
             sinMovimientos.style.display = 'none';
 
+            // Etiqueta y color del tipo de movimiento (incluye el nuevo tipo "transferencia",
+            // usado para lo que sale del Almacén Principal hacia el Almacén Punto de Venta o
+            // directo al Piso de Venta).
+            const etiquetaTipo = (m) => {
+                if(m.tipo === 'entrada') return '<span class="entrada-badge">📥 Entrada</span>';
+                if(m.tipo === 'salida') return '<span class="salida-badge">📤 Salida</span>';
+                return '<span class="transferencia-badge">🔀 Transferencia</span>';
+            };
+            const colorCantidad = (m) => m.tipo === 'entrada' ? '#4caf50' : (m.tipo === 'salida' ? '#f44336' : '#1976d2');
+            const signoCantidad = (m) => m.tipo === 'salida' ? '-' : '+';
+
+            // Toda la fila es clicable (menos el botón Eliminar) y abre el detalle completo,
+            // incluyendo, para las transferencias, de dónde a dónde se movió.
             tbody.innerHTML = movimientos
                 .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
                 .map(m => `
-                    <tr>
+                    <tr onclick="mostrarDetalleMovimientoHistorial(${m.id})" style="cursor:pointer;">
                         <td style="font-weight: 600;">${formatearFecha(m.fecha)}</td>
-                        <td>
-                            ${m.tipo === 'entrada' ? 
-                                '<span class="entrada-badge">📥 Entrada</span>' : 
-                                '<span class="salida-badge">📤 Salida</span>'}
-                        </td>
-                        <td><strong>${m.producto}</strong></td>
-                        <td style="text-align: center; font-weight: 600; color: ${m.tipo === 'entrada' ? '#4caf50' : '#f44336'};">
-                            ${m.tipo === 'entrada' ? '+' : '-'}${m.cantidad}
+                        <td>${etiquetaTipo(m)}</td>
+                        <td><strong>${escaparHtmlSimple(m.producto)}</strong>${m.tipo === 'transferencia' ? `<div style="font-size:11px; color:#888; margin-top:2px;">${escaparHtmlSimple(m.origen || '')} → ${escaparHtmlSimple(m.destino || '')}</div>` : ''}</td>
+                        <td style="text-align: center; font-weight: 600; color: ${colorCantidad(m)};">
+                            ${signoCantidad(m)}${m.cantidad}
                         </td>
                         <td style="text-align: center;">${m.unidad}</td>
-                        <td>${m.categoria || 'Sin categoría'}</td>
                         <td style="text-align: center; font-size: 12px; color: #666;">${m.registradoPor || '-'}</td>
                         <td style="text-align: center;">
-                            <button class="btn btn-small btn-danger" onclick="eliminarMovimientoHistorial(${m.id}, '${escaparParaOnclick(m.producto)}')">
+                            <button class="btn btn-small btn-danger" onclick="event.stopPropagation(); eliminarMovimientoHistorial(${m.id}, '${escaparParaOnclick(m.producto)}')">
                                 🗑️ Eliminar
                             </button>
                         </td>
@@ -3107,7 +3193,57 @@
                 `).join('');
         }
 
-        // ELIMINAR MOVIMIENTO CON CONFIRMACIÓN
+        // MUESTRA EL DETALLE COMPLETO DE UN MOVIMIENTO AL TOCARLO EN EL HISTORIAL
+        // (fecha, tipo, cantidad, SKU, observaciones y, si es una transferencia, de dónde a dónde)
+        function mostrarDetalleMovimientoHistorial(id) {
+            const movimientos = cargarDatos();
+            const m = movimientos.find(x => x.id === id);
+            if(!m) return;
+
+            let tipoLabel, tipoColor;
+            if(m.tipo === 'entrada') { tipoLabel = '📥 Entrada'; tipoColor = '#4caf50'; }
+            else if(m.tipo === 'salida') { tipoLabel = '📤 Salida'; tipoColor = '#f44336'; }
+            else { tipoLabel = '🔀 Transferencia'; tipoColor = '#1976d2'; }
+
+            let filas = `
+                <div class="detalle-mov-fila"><span>Fecha</span><strong>${formatearFecha(m.fecha)}</strong></div>
+                <div class="detalle-mov-fila"><span>Tipo</span><strong style="color:${tipoColor};">${tipoLabel}</strong></div>
+                <div class="detalle-mov-fila"><span>Producto</span><strong>${escaparHtmlSimple(m.producto)}</strong></div>
+            `;
+            if(m.tipo === 'transferencia') {
+                filas += `
+                <div class="detalle-mov-fila detalle-mov-ruta">
+                    <span>Movimiento</span>
+                    <strong>${escaparHtmlSimple(m.origen || '-')} → ${escaparHtmlSimple(m.destino || '-')}</strong>
+                </div>`;
+            }
+            filas += `
+                <div class="detalle-mov-fila"><span>Cantidad</span><strong style="color:${tipoColor};">${signoParaTipo(m)}${m.cantidad} ${escaparHtmlSimple(m.unidad || '')}</strong></div>
+                <div class="detalle-mov-fila"><span>SKU/Referencia</span><strong>${escaparHtmlSimple(m.referencia || '-')}</strong></div>
+                <div class="detalle-mov-fila"><span>Observaciones</span><strong>${escaparHtmlSimple(m.observaciones || '-')}</strong></div>
+                <div class="detalle-mov-fila"><span>Registrado por</span><strong>${escaparHtmlSimple(m.registradoPor || '-')}</strong></div>
+            `;
+
+            document.getElementById('detalleMovimientoContenido').innerHTML = filas;
+            document.getElementById('detalleMovimientoBtnEliminar').setAttribute('onclick', `eliminarMovimientoHistorial(${m.id}, '${escaparParaOnclick(m.producto)}')`);
+            document.getElementById('modalDetalleMovimiento').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function signoParaTipo(m) {
+            return m.tipo === 'salida' ? '-' : '+';
+        }
+
+        function cerrarModalDetalleMovimiento() {
+            document.getElementById('modalDetalleMovimiento').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        // ELIMINAR (DESHACER) MOVIMIENTO CON CONFIRMACIÓN
+        // Para una transferencia, además de quitarla del historial, revierte sus efectos:
+        // devuelve la cantidad al Almacén Principal, y si había ido directo al Piso de
+        // Venta, también se la resta a ese dato — igual que ya funciona deshacer una
+        // salida normal (el stock se recalcula solo desde el historial de movimientos).
         function eliminarMovimientoHistorial(id, nombreProducto) {
             const movimientos = cargarDatos();
             const movimiento = movimientos.find(m => m.id === id);
@@ -3117,24 +3253,100 @@
                 return;
             }
 
-            const tipo = movimiento.tipo === 'entrada' ? '📥 ENTRADA' : '📤 SALIDA';
-            const mensaje = `¿Eliminar este movimiento?\n\n${tipo}\nProducto: ${nombreProducto}\nCantidad: ${movimiento.cantidad} ${movimiento.unidad}\nFecha: ${formatearFecha(movimiento.fecha)}`;
+            let tipo, mensaje;
+            if(movimiento.tipo === 'transferencia') {
+                tipo = '🔀 TRANSFERENCIA';
+                mensaje = `¿Deshacer esta transferencia?\n\n${tipo}\nProducto: ${nombreProducto}\nCantidad: ${movimiento.cantidad} ${movimiento.unidad}\nDe: ${movimiento.origen}\nA: ${movimiento.destino}\nFecha: ${formatearFecha(movimiento.fecha)}\n\nLa cantidad se devolverá al Almacén Principal.`;
+            } else {
+                tipo = movimiento.tipo === 'entrada' ? '📥 ENTRADA' : '📤 SALIDA';
+                mensaje = `¿Eliminar este movimiento?\n\n${tipo}\nProducto: ${nombreProducto}\nCantidad: ${movimiento.cantidad} ${movimiento.unidad}\nFecha: ${formatearFecha(movimiento.fecha)}`;
+            }
 
             if(confirm(mensaje)) {
                 // Segunda confirmación para evitar accidentes
                 if(confirm('⚠️ CONFIRMACIÓN FINAL\n¿Estás completamente seguro?\nEsta acción no se puede deshacer.')) {
                     const nuevosMovimientos = movimientos.filter(m => m.id !== id);
-                    localStorage.setItem('movimientos', JSON.stringify(nuevosMovimientos));
-                    
+                    guardarMovimientosYSync(nuevosMovimientos);
+
+                    if(movimiento.tipo === 'transferencia') deshacerEfectosTransferencia(movimiento);
+                    else if(movimiento.tipo === 'salida' && movimiento.observaciones === 'Transferencia a piso de venta') {
+                        deshacerEfectosTransferenciaAPiso(movimiento);
+                    }
+
                     // Actualizar todo
+                    cerrarModalDetalleMovimiento();
                     actualizarHistorialEditable();
                     actualizarDashboard();
                     actualizarListadoProductos();
+                    actualizarAlmacenPrincipalList();
                     filtrarHistorial();
 
                     mostrarMensaje('✅ Movimiento eliminado correctamente', 'success');
                 }
             }
+        }
+
+        // Revierte los efectos secundarios de una transferencia deshecha desde el Historial:
+        // 1) siempre devuelve la cantidad al Almacén Principal (de donde salió).
+        // 2) si el destino era "Piso de Venta" directo, también resta esa cantidad del
+        //    dato de piso ya calculado en "Piso vs Almacén" (si ese resultado sigue guardado).
+        // Si el destino era "Almacén Punto de Venta" (el catálogo), no hace falta nada más:
+        // al quitarse el movimiento tipo "transferencia" del historial, calcularStockProducto()
+        // deja de sumarlo automáticamente y el stock del catálogo queda correcto solo.
+        function deshacerEfectosTransferencia(movimiento) {
+            let lista = cargarAlmacenPrincipal();
+            let p = null;
+            if(movimiento.referencia) {
+                p = lista.find(x => (x.sku || '').trim().toUpperCase() === movimiento.referencia.trim().toUpperCase());
+            }
+            if(!p) p = lista.find(x => x.nombre.trim().toLowerCase() === movimiento.producto.trim().toLowerCase());
+            if(p) {
+                p.cantidad = (p.cantidad || 0) + movimiento.cantidad;
+                guardarAlmacenPrincipal(lista);
+            }
+
+            if(movimiento.destino === 'Piso de Venta' && resultadoComparacionPiso && resultadoComparacionPiso.length > 0) {
+                const r = resultadoComparacionPiso.find(x =>
+                    (movimiento.referencia && (x.sku || '').trim().toUpperCase() === movimiento.referencia.trim().toUpperCase()) ||
+                    x.nombre.trim().toLowerCase() === movimiento.producto.trim().toLowerCase()
+                );
+                if(r && r.piso !== null) {
+                    r.piso -= movimiento.cantidad;
+                    if(r.total !== null) r.total -= movimiento.cantidad;
+                    const minimo = 10;
+                    if(r.piso <= 0) r.estado = 'agotado';
+                    else if(r.piso <= minimo) r.estado = 'bajo';
+                    else r.estado = 'ok';
+                    guardarResultadoComparacionPiso();
+                    const contResumenPiso = document.getElementById('resumenComparacionPiso');
+                    if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+                    if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
+                }
+            }
+        }
+
+        // Revierte una transferencia "Almacén (catálogo) → Piso de Venta" (la que ya se hacía
+        // desde "Piso vs Almacén"): además de que el stock del catálogo se corrige solo al
+        // quitarse la salida, hay que devolver esa cantidad al lado "Almacén" y quitarla del
+        // lado "Piso" en el resultado de la comparación guardada.
+        function deshacerEfectosTransferenciaAPiso(movimiento) {
+            if(!resultadoComparacionPiso || resultadoComparacionPiso.length === 0) return;
+            const r = resultadoComparacionPiso.find(x =>
+                (movimiento.referencia && (x.sku || '').trim().toUpperCase() === movimiento.referencia.trim().toUpperCase()) ||
+                x.nombre.trim().toLowerCase() === movimiento.producto.trim().toLowerCase()
+            );
+            if(!r || r.piso === null || r.almacen === null) return;
+
+            r.almacen += movimiento.cantidad;
+            r.piso -= movimiento.cantidad;
+            const minimo = 10;
+            if(r.piso <= 0) r.estado = 'agotado';
+            else if(r.piso <= minimo) r.estado = 'bajo';
+            else r.estado = 'ok';
+            guardarResultadoComparacionPiso();
+            const contResumenPiso = document.getElementById('resumenComparacionPiso');
+            if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+            if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
         }
 
         // FILTRAR HISTORIAL
@@ -3146,7 +3358,7 @@
             let visibles = 0;
             filas.forEach(fila => {
                 const nombreProducto = fila.cells[2].textContent.toLowerCase();
-                const tipoFila = fila.innerHTML.includes('📥') ? 'entrada' : 'salida';
+                const tipoFila = fila.innerHTML.includes('📥') ? 'entrada' : (fila.innerHTML.includes('🔀') ? 'transferencia' : 'salida');
 
                 const cumpleProducto = nombreProducto.includes(producto);
                 const cumpleTipo = !tipo || tipoFila === tipo;
@@ -3172,6 +3384,15 @@
         // CARGAR DATOS
         function cargarDatos() {
             return JSON.parse(localStorage.getItem('movimientos')) || [];
+        }
+
+        // Guarda la lista de movimientos y, de inmediato, intenta sincronizar con GitHub
+        // (si está conectado) en vez de esperar al ciclo automático de 2 minutos. Usar
+        // esta función (en lugar de localStorage.setItem('movimientos', ...) directo) en
+        // cualquier lugar donde se registre, edite o elimine un movimiento real.
+        function guardarMovimientosYSync(lista) {
+            localStorage.setItem('movimientos', JSON.stringify(lista));
+            notificarCambioMovimientos();
         }
 
         // Alterna entre las sub-pestañas "Firebase" y "GitHub" dentro de Stock en Vivo (no afecta las pestañas principales)
@@ -3760,6 +3981,7 @@
                     sincronizandoMovimientos = false;
                     const hora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
                     if(okSubida && okBajada) {
+                        marcarSyncMovimientosPendiente(false); // ya no quedan cambios sin subir
                         actualizarEstadoSyncMovimientos(`🟢 Sincronizado ${hora}` + (traidos > 0 ? ` — ${traidos} movimiento(s) nuevo(s) de otros dispositivos` : ''), '#2e7d32');
                         if(esManual) mostrarMensajeSyncMovimientos(traidos > 0 ? `✅ Se trajeron ${traidos} movimiento(s) nuevo(s).` : '✅ Ya estabas al día, no había nada nuevo.', 'success');
                     } else {
@@ -3767,6 +3989,44 @@
                         if(esManual) mostrarMensajeSyncMovimientos('❌ No se pudo sincronizar. Revisa tu conexión a internet e inténtalo de nuevo.', 'error');
                     }
                 });
+            });
+        }
+
+        // ===== SINCRONIZACIÓN INSTANTÁNEA TRAS CADA MOVIMIENTO =====
+        // Se llama automáticamente cada vez que se guarda un movimiento nuevo, se edita o
+        // se elimina uno (ver guardarMovimientosYSync). Si GitHub está conectado y hay
+        // internet en este momento, sincroniza YA en vez de esperar el ciclo de 2 minutos.
+        // Si no hay internet ahora mismo, deja marcado "pendiente" para que, apenas se
+        // recupere la conexión (o se vuelva a abrir la app), se suba solo, sin tener que
+        // acordarse de hacerlo a mano.
+        function notificarCambioMovimientos() {
+            const config = cargarConfigGitHub();
+            if(!config) return; // GitHub no está conectado, no hay nada que sincronizar
+            if(!obtenerNombreDispositivo()) return; // falta ponerle nombre a este dispositivo
+
+            if(typeof navigator !== 'undefined' && navigator.onLine === false) {
+                marcarSyncMovimientosPendiente(true);
+                return;
+            }
+            sincronizarMovimientosAhora(false);
+        }
+
+        function marcarSyncMovimientosPendiente(valor) {
+            if(valor) localStorage.setItem('syncMovimientosPendiente', '1');
+            else localStorage.removeItem('syncMovimientosPendiente');
+        }
+
+        function haySyncMovimientosPendiente() {
+            return localStorage.getItem('syncMovimientosPendiente') === '1';
+        }
+
+        // En cuanto el navegador avisa que volvió la conexión, si había movimientos
+        // pendientes de subir (se hicieron mientras estábamos offline), se sincronizan solos.
+        if(typeof window !== 'undefined') {
+            window.addEventListener('online', function() {
+                if(haySyncMovimientosPendiente() && cargarConfigGitHub()) {
+                    sincronizarMovimientosAhora(false);
+                }
             });
         }
 
@@ -3914,7 +4174,7 @@
                         movimientos: 0
                     };
                 }
-                stock[m.producto].neto += m.tipo === 'entrada' ? m.cantidad : -m.cantidad;
+                stock[m.producto].neto += deltaStockMovimiento(m);
                 stock[m.producto].movimientos++;
             });
 
@@ -3956,7 +4216,7 @@
                     if(!acc[m.producto]) acc[m.producto] = { cantidad: 0, entradas: 0, salidas: 0 };
                     acc[m.producto].cantidad += m.cantidad;
                     if(m.tipo === 'entrada') acc[m.producto].entradas += m.cantidad;
-                    else acc[m.producto].salidas += m.cantidad;
+                    else if(m.tipo === 'salida') acc[m.producto].salidas += m.cantidad;
                     return acc;
                 }, {});
 
@@ -4038,7 +4298,7 @@
                 .forEach(m => {
                     if(ultimos7[m.fecha]) {
                         if(m.tipo === 'entrada') ultimos7[m.fecha].entradas += m.cantidad;
-                        else ultimos7[m.fecha].salidas += m.cantidad;
+                        else if(m.tipo === 'salida') ultimos7[m.fecha].salidas += m.cantidad;
                     }
                 });
 
@@ -4087,7 +4347,7 @@
             const stock = {};
             movimientos.forEach(m => {
                 if(!stock[m.producto]) stock[m.producto] = 0;
-                stock[m.producto] += m.tipo === 'entrada' ? m.cantidad : -m.cantidad;
+                stock[m.producto] += deltaStockMovimiento(m);
             });
 
             const top10 = Object.entries(stock)
@@ -4188,7 +4448,7 @@
                 const stock = {};
                 cargarDatos().forEach(m => {
                     if(!stock[m.producto]) stock[m.producto] = 0;
-                    stock[m.producto] += m.tipo === 'entrada' ? m.cantidad : -m.cantidad;
+                    stock[m.producto] += deltaStockMovimiento(m);
                 });
 
                 movimientos = movimientos.filter(m => {
@@ -4208,7 +4468,7 @@
                 .map(m => `
                     <tr>
                         <td>${formatearFecha(m.fecha)}</td>
-                        <td>${m.tipo === 'entrada' ? '<span class="entrada-badge">📥 Entrada</span>' : '<span class="salida-badge">📤 Salida</span>'}</td>
+                        <td>${m.tipo === 'entrada' ? '<span class="entrada-badge">📥 Entrada</span>' : (m.tipo === 'salida' ? '<span class="salida-badge">📤 Salida</span>' : '<span class="transferencia-badge">🔀 Transferencia</span>')}</td>
                         <td><strong>${m.producto}</strong></td>
                         <td>${m.categoria}</td>
                         <td>${m.cantidad}</td>
@@ -4282,7 +4542,7 @@
                 } else {
                     const filas = recientes.map(m => filaTabla([
                         formatearFecha(m.fecha),
-                        m.tipo === 'entrada' ? '📥 Entrada' : '📤 Salida',
+                        m.tipo === 'entrada' ? '📥 Entrada' : (m.tipo === 'salida' ? '📤 Salida' : '🔀 Transferencia'),
                         escaparHtmlSimple(m.producto),
                         `${m.cantidad} ${m.unidad}`
                     ])).join('');
@@ -4330,7 +4590,7 @@
                 delMes.forEach(m => {
                     if(!porProducto[m.producto]) porProducto[m.producto] = { entradas: 0, salidas: 0, unidad: m.unidad };
                     if(m.tipo === 'entrada') porProducto[m.producto].entradas += m.cantidad;
-                    else porProducto[m.producto].salidas += m.cantidad;
+                    else if(m.tipo === 'salida') porProducto[m.producto].salidas += m.cantidad;
                 });
                 const filasProductos = Object.entries(porProducto)
                     .sort((a, b) => (b[1].entradas + b[1].salidas) - (a[1].entradas + a[1].salidas))
@@ -4873,12 +5133,20 @@
         }
 
         function eliminarMovimiento(id) {
+            const movimientos = cargarDatos();
+            const movimiento = movimientos.find(m => m.id === id);
             if(confirm('¿Eliminar este movimiento?')) {
-                let movimientos = cargarDatos();
-                movimientos = movimientos.filter(m => m.id !== id);
-                localStorage.setItem('movimientos', JSON.stringify(movimientos));
+                const nuevosMovimientos = movimientos.filter(m => m.id !== id);
+                guardarMovimientosYSync(nuevosMovimientos);
+                if(movimiento) {
+                    if(movimiento.tipo === 'transferencia') deshacerEfectosTransferencia(movimiento);
+                    else if(movimiento.tipo === 'salida' && movimiento.observaciones === 'Transferencia a piso de venta') {
+                        deshacerEfectosTransferenciaAPiso(movimiento);
+                    }
+                }
                 aplicarBusquedaAvanzada();
                 actualizarDashboard();
+                actualizarAlmacenPrincipalList();
             }
         }
 
@@ -5285,7 +5553,27 @@
         // stock que hay registrado en este almacén, para calcular lo que debería quedar en
         // el piso de venta: Piso = Total (Excel) − Almacén (este app). Empareja por SKU
         // primero y, si no hay SKU, por nombre.
+        // Se guarda en localStorage para que NO se pierda al recargar la app o cambiar de
+        // pestaña: el dato sigue disponible hasta que se importe un Excel nuevo (que lo
+        // reemplaza) o se transfiera algo (que lo actualiza), igual que antes en memoria.
         let resultadoComparacionPiso = [];
+
+        function guardarResultadoComparacionPiso() {
+            localStorage.setItem('resultadoComparacionPiso', JSON.stringify(resultadoComparacionPiso));
+        }
+
+        function cargarResultadoComparacionPisoGuardado() {
+            try {
+                const guardado = JSON.parse(localStorage.getItem('resultadoComparacionPiso') || '[]');
+                if(Array.isArray(guardado) && guardado.length > 0) {
+                    resultadoComparacionPiso = guardado;
+                    document.getElementById('resumenComparacionPiso').innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+                    document.getElementById('controlesComparacionPiso').style.display = 'block';
+                    actualizarBotonSoloAmbosPiso();
+                    renderizarResultadoComparacion();
+                }
+            } catch(e) { /* nada guardado o corrupto, se ignora */ }
+        }
 
         function procesarComparacionPisoDesdeExcel(filas) {
             const catalogo = cargarProductos();
@@ -5338,6 +5626,7 @@
 
             resultados.forEach((r, i) => { r.idx = i; });
             resultadoComparacionPiso = resultados;
+            guardarResultadoComparacionPiso();
 
             document.getElementById('resumenComparacionPiso').innerHTML = construirResumenComparacionPiso(resultados);
             document.getElementById('controlesComparacionPiso').style.display = resultados.length > 0 ? 'block' : 'none';
@@ -5401,6 +5690,16 @@
             // y los productos sin existencia registrada en almacén (nada real que comparar).
             if(soloAmbos) {
                 filtrados = filtrados.filter(r => r.estado !== 'noEncontrado' && r.almacen !== null && r.almacen > 0);
+            }
+
+            // Buscador por nombre o SKU, igual que en el resto de la app.
+            const busquedaEl = document.getElementById('buscadorComparacionPiso');
+            const busqueda = (busquedaEl && busquedaEl.value || '').trim().toLowerCase();
+            if(busqueda) {
+                filtrados = filtrados.filter(r =>
+                    r.nombre.toLowerCase().includes(busqueda) ||
+                    (r.sku || '').toLowerCase().includes(busqueda)
+                );
             }
 
             if(filtrados.length === 0) {
@@ -5745,11 +6044,13 @@
                 if(r.piso <= 0) r.estado = 'agotado';
                 else if(r.piso <= minimo) r.estado = 'bajo';
                 else r.estado = 'ok';
+                guardarResultadoComparacionPiso();
 
                 p.cantidad -= cantidad;
                 guardarAlmacenPrincipal(lista);
 
                 registrarTransferenciaSesionAlmacenPrincipal(p.nombre, cantidad, '', 'piso');
+                registrarMovimientoTransferencia(p, cantidad, '', 'Piso de Venta');
 
                 cerrarModalTransferirAlmacenPrincipal();
                 actualizarAlmacenPrincipalList();
@@ -5757,6 +6058,7 @@
                 if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
                 if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
                 actualizarDashboard();
+                actualizarHistorialEditable();
                 mostrarMensaje(`✅ Se transfirieron ${cantidad} de "${p.nombre}" directo al Piso de Venta.`, 'success');
                 return;
             }
@@ -5778,25 +6080,10 @@
                 guardarProductosCatalogo(productos);
             }
 
-            const movimiento = {
-                id: Date.now(),
-                tipo: 'entrada',
-                fecha: new Date().toISOString().split('T')[0],
-                producto: producto.nombre,
-                cantidad: cantidad,
-                unidad: producto.unidad,
-                referencia: producto.sku,
-                categoria: producto.categoria || 'Sin categoría',
-                observaciones: 'Transferencia desde Almacén Principal',
-                registradoPor: localStorage.getItem('ultimoRegistradoPor') || ''
-            };
-            let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
-            movimientos.push(movimiento);
-            localStorage.setItem('movimientos', JSON.stringify(movimientos));
+            registrarMovimientoTransferencia(p, cantidad, producto.unidad, 'Almacén Punto de Venta', producto);
 
             p.cantidad -= cantidad;
             guardarAlmacenPrincipal(lista);
-
 
             registrarTransferenciaSesionAlmacenPrincipal(p.nombre, cantidad, producto.unidad, 'almacen');
 
@@ -5805,7 +6092,33 @@
             actualizarProductosList();
             actualizarListadoProductos();
             actualizarDashboard();
+            actualizarHistorialEditable();
             mostrarMensaje(`✅ Se transfirieron ${cantidad} de "${p.nombre}" al Almacén Piso Venta.`, 'success');
+        }
+
+        // Crea y guarda un movimiento tipo "transferencia" (visible y deshacible desde el
+        // Historial), con el origen fijo "Almacén Principal" y el destino que corresponda:
+        // "Almacén Punto de Venta" o "Piso de Venta". productoCatalogo es opcional, solo se
+        // pasa cuando el destino es el catálogo (para tomar su SKU/unidad/categoría reales).
+        function registrarMovimientoTransferencia(pAlmacenPrincipal, cantidad, unidad, destino, productoCatalogo) {
+            const movimiento = {
+                id: Date.now(),
+                tipo: 'transferencia',
+                fecha: new Date().toISOString().split('T')[0],
+                producto: productoCatalogo ? productoCatalogo.nombre : pAlmacenPrincipal.nombre,
+                cantidad: cantidad,
+                unidad: productoCatalogo ? productoCatalogo.unidad : (unidad || ''),
+                referencia: productoCatalogo ? productoCatalogo.sku : (pAlmacenPrincipal.sku || ''),
+                categoria: productoCatalogo ? (productoCatalogo.categoria || 'Sin categoría') : 'Sin categoría',
+                origen: 'Almacén Principal',
+                destino: destino,
+                observaciones: `Transferencia: Almacén Principal → ${destino}`,
+                registradoPor: localStorage.getItem('ultimoRegistradoPor') || ''
+            };
+            let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
+            movimientos.push(movimiento);
+            guardarMovimientosYSync(movimientos);
+            return movimiento;
         }
 
         // ===== RESUMEN DE TRANSFERENCIAS ALMACÉN PRINCIPAL -> PUNTO DE VENTA (de esta sesión) =====
@@ -5987,7 +6300,7 @@
 
             let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
             movimientos.push(movimiento);
-            localStorage.setItem('movimientos', JSON.stringify(movimientos));
+            guardarMovimientosYSync(movimientos);
 
             // Refleja el cambio al instante en el resultado de la comparación, sin tener
             // que volver a importar el Excel: baja del almacén y sube en el piso.
@@ -5997,12 +6310,14 @@
             if(r.piso <= 0) r.estado = 'agotado';
             else if(r.piso <= minimo) r.estado = 'bajo';
             else r.estado = 'ok';
+            guardarResultadoComparacionPiso();
 
             cerrarModalTransferirPiso();
             document.getElementById('resumenComparacionPiso').innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
             renderizarResultadoComparacion();
             actualizarDashboard();
             actualizarProductosList();
+            actualizarHistorialEditable();
 
             // Anota esta transferencia en el resumen de la sesión, para que al terminar
             // de mover todo se pueda comparar contra lo que se sacó físicamente y detectar
@@ -6247,7 +6562,7 @@
 
             let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
             movimientos.push(movimiento);
-            localStorage.setItem('movimientos', JSON.stringify(movimientos));
+            guardarMovimientosYSync(movimientos);
 
             actualizarDashboard();
             actualizarProductosList();
@@ -6295,6 +6610,7 @@
             }
 
             localStorage.setItem('movimientos', JSON.stringify(movimientos));
+            notificarCambioMovimientos();
             actualizarDashboard();
             actualizarProductosList();
             actualizarListadoProductos();
