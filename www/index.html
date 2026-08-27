@@ -1860,12 +1860,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="producto">Producto *</label>
-                            <input type="text" id="producto" list="listaProductosRegistro" required
+                            <input type="text" id="producto" required
                                    placeholder="🔍 Escribe para buscar un producto..." autocomplete="off"
                                    oninput="autocompletarCamposProducto(); mostrarSugerenciasProducto(this)"
                                    onchange="autocompletarCamposProducto()"
                                    onfocus="mostrarSugerenciasProducto(this)" onblur="ocultarSugerenciasProducto()">
-                            <datalist id="listaProductosRegistro"></datalist>
                             <div id="infoStockProducto" style="font-size: 12px; margin-top: 4px; color: #666;"></div>
                         </div>
                         <div class="form-group">
@@ -4124,19 +4123,14 @@
             return agregados;
         }
 
-        // ACTUALIZAR SELECT DE PRODUCTOS DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
+        // ACTUALIZAR CAMPO DE PRODUCTOS DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
+        // Nota: ya no se usa un <datalist> nativo (Chrome dibujaba su propio menú por encima
+        // de la cinta de sugerencias propia, duplicando el listado). El propio input
+        // más la cinta #barraSugerenciasProductos cubren la búsqueda/autocompletado.
         function actualizarProductosList() {
             const catalogo = cargarProductos();
             const input = document.getElementById('producto');
-            const datalist = document.getElementById('listaProductosRegistro');
             const valorActual = input.value;
-
-            const opciones = catalogo
-                .sort((a, b) => a.nombre.localeCompare(b.nombre))
-                .map(p => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre} (${p.sku})</option>`)
-                .join('');
-
-            datalist.innerHTML = opciones;
 
             // Conservar lo que se había escrito/seleccionado si el producto sigue existiendo
             if(valorActual && buscarProductoPorNombre(valorActual)) {
