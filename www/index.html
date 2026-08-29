@@ -58,13 +58,28 @@
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 28px 25px 28px 62px;
-            text-align: center;
+            padding: 22px 20px;
             position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* El botón ☰ ahora es un elemento más del flex (ya no position:absolute),
+           así que el título nunca puede quedar debajo o encima de él: el navegador
+           reserva su espacio solo, sin depender de un padding-left calculado a mano
+           que se rompía en pantallas chicas (por eso se veía montado en el header). */
+        .header-texto {
+            flex: 1;
+            min-width: 0;
+            text-align: center;
+            /* Compensa visualmente el ancho del botón para que el título quede
+               centrado en el header, no centrado-pero-empujado-a-la-derecha. */
+            padding-right: 52px;
         }
 
         .header h1 {
-            font-size: 32px;
+            font-size: 30px;
             margin-bottom: 5px;
         }
 
@@ -174,7 +189,12 @@
 
         @media (max-width: 480px) {
             .header {
-                padding: 15px 10px 15px 52px;
+                padding: 14px 12px;
+                gap: 8px;
+            }
+
+            .header-texto {
+                padding-right: 42px;
             }
 
             .header h1 {
@@ -187,8 +207,6 @@
             }
 
             .btn-hamburger {
-                left: 8px;
-                top: 12px;
                 width: 34px;
                 height: 34px;
                 font-size: 17px;
@@ -202,7 +220,12 @@
            Se activa solo cuando el alto es realmente chico, para no afectar tablets. */
         @media (orientation: landscape) and (max-height: 500px) {
             .header {
-                padding: 10px 20px 10px 55px;
+                padding: 8px 16px;
+                gap: 8px;
+            }
+
+            .header-texto {
+                padding-right: 42px;
             }
 
             .header h1 {
@@ -215,8 +238,6 @@
             }
 
             .btn-hamburger {
-                left: 10px;
-                top: 8px;
                 width: 34px;
                 height: 34px;
                 font-size: 17px;
@@ -799,14 +820,6 @@
         }
 
         @media (max-width: 480px) {
-            .header h1 {
-                font-size: 24px;
-            }
-
-            .header {
-                padding: 15px;
-            }
-
             .chart-container {
                 min-height: 250px;
                 padding: 12px;
@@ -1467,9 +1480,7 @@
            .tab-btn para no tocar la lógica de cambiarTab(), que ya sabe manejar
            "quitar active de todos los .tab-btn y ponérselo al pulsado". */
         .btn-hamburger {
-            position: absolute;
-            left: 14px;
-            top: 18px;
+            flex-shrink: 0;
             width: 40px;
             height: 40px;
             border: none;
@@ -1571,8 +1582,10 @@
     <div class="container">
         <div class="header">
             <button type="button" class="btn-hamburger" onclick="abrirMenuLateral()" aria-label="Abrir menú">☰</button>
-            <h1>📦 Gestor de Inventario Avanzado</h1>
-            <p>Análisis inteligente de entradas y salidas con gráficos y estadísticas</p>
+            <div class="header-texto">
+                <h1>📦 Gestor de Inventario Avanzado</h1>
+                <p>Análisis inteligente de entradas y salidas con gráficos y estadísticas</p>
+            </div>
             <div id="indicadorGuardado" class="indicador-guardado">💾 Guardado</div>
         </div>
 
