@@ -1,0 +1,79 @@
+name: Compilar APK Android
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Configurar Java (necesario para Gradle/Android)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Restaurar debug.keystore fijo (para firmar igual en cada build y poder actualizar sin desinstalar)
+        run: |
+          mkdir -p ~/.android
+          echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > ~/.android/debug.keystore
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Descargar librerías offline (Chart.js y SheetJS/xlsx) para que queden dentro del APK
+        run: |
+          mkdir -p www/vendor
+          curl -fL -o www/vendor/chart.min.js https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js
+          curl -fL -o www/vendor/xlsx.full.min.js https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js
+
+      - name: Agregar plataforma Android (se genera en cada build, no se guarda en el repo)
+        run: npx cap add android
+
+      - name: Fijar versionCode/versionName (para que Android reconozca cada build como una actualización)
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
+
+      - name: Instalar plugin nativo FileSaver (guardado confiable de archivos en Descargas)
+        run: |
+          MAIN_ACTIVITY=$(find android -name MainActivity.java)
+          PACKAGE_NAME=$(grep '^package ' "$MAIN_ACTIVITY" | sed 's/package //;s/;//')
+          PLUGIN_DIR=$(dirname "$MAIN_ACTIVITY")
+          echo "MainActivity encontrado en: $MAIN_ACTIVITY"
+          echo "Paquete detectado: $PACKAGE_NAME"
+
+          # Copia el plugin dentro del proyecto generado, con el paquete correcto
+          sed "s/TU.PAQUETE.AQUI/$PACKAGE_NAME/" native-patches/FileSaverPlugin.java > "$PLUGIN_DIR/FileSaverPlugin.java"
+
+          # Registra el plugin en MainActivity.java (agrega un onCreate si no existe)
+          python3 native-patches/registrar_plugin.py "$MAIN_ACTIVITY"
+
+      - name: Generar ícono de la app (a partir de resources/icon.png)
+        run: npx @capacitor/assets generate --android --iconBackgroundColor '#FFFFFF' --iconBackgroundColorDark '#FFFFFF'
+
+      - name: Sincronizar www con el proyecto Android
+        run: npx cap sync android
+
+      - name: Dar permiso de ejecución a gradlew
+        run: chmod +x android/gradlew
+
+      - name: Compilar APK de depuración (debug)
+        working-directory: android
+        run: ./gradlew assembleDebug
+
+      - name: Subir APK como artefacto descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-almacen-geova-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
