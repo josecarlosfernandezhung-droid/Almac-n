@@ -58,7 +58,7 @@
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 28px 25px;
+            padding: 28px 25px 28px 62px;
             text-align: center;
             position: relative;
         }
@@ -91,6 +91,36 @@
         .indicador-guardado.visible {
             opacity: 1;
             transform: translateY(0);
+        }
+
+        /* Toast global de confirmación al guardar/exportar un archivo (CSV, JSON,
+           respaldo, etc.). Va fuera de .container, fijo a la pantalla, para que se
+           vea sin importar en qué pestaña esté José cuando exporta algo. */
+        .toast-global {
+            position: fixed;
+            left: 50%;
+            bottom: 22px;
+            transform: translate(-50%, 16px);
+            max-width: 92vw;
+            background: #2e7d32;
+            color: #fff;
+            font-size: 13.5px;
+            font-weight: 600;
+            padding: 12px 18px;
+            border-radius: 14px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            z-index: 3000;
+            text-align: center;
+        }
+        .toast-global.toast-error {
+            background: #c62828;
+        }
+        .toast-global.visible {
+            opacity: 1;
+            transform: translate(-50%, 0);
         }
 
         .header p {
@@ -144,7 +174,7 @@
 
         @media (max-width: 480px) {
             .header {
-                padding: 15px 10px;
+                padding: 15px 10px 15px 52px;
             }
 
             .header h1 {
@@ -154,6 +184,77 @@
 
             .header p {
                 font-size: 12px;
+            }
+
+            .btn-hamburger {
+                left: 8px;
+                top: 12px;
+                width: 34px;
+                height: 34px;
+                font-size: 17px;
+            }
+        }
+
+        /* HORIZONTAL (teléfono acostado): en este modo el ancho sobra pero el alto
+           escasea muchísimo (a veces ~360-400px de alto en un teléfono normal), así
+           que aquí se compacta lo que ocupa espacio vertical fijo (header, pestañas)
+           para que quede más contenido útil visible sin tener que hacer tanto scroll.
+           Se activa solo cuando el alto es realmente chico, para no afectar tablets. */
+        @media (orientation: landscape) and (max-height: 500px) {
+            .header {
+                padding: 10px 20px 10px 55px;
+            }
+
+            .header h1 {
+                font-size: 19px;
+                margin-bottom: 2px;
+            }
+
+            .header p {
+                font-size: 11px;
+            }
+
+            .btn-hamburger {
+                left: 10px;
+                top: 8px;
+                width: 34px;
+                height: 34px;
+                font-size: 17px;
+            }
+
+            .barra-tab-actual {
+                padding: 8px 16px;
+            }
+
+            .indicador-guardado {
+                top: 8px;
+                right: 10px;
+            }
+
+            .tabs {
+                padding: 8px 10px;
+                gap: 6px;
+            }
+
+            .tab-btn {
+                min-height: 44px;
+                flex-direction: row;
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+
+            .tab-btn .tab-icon {
+                font-size: 16px;
+            }
+
+            .content {
+                padding: 14px 20px;
+            }
+
+            .modal-box {
+                margin-top: 10px;
+                max-height: 90vh;
+                overflow-y: auto;
             }
         }
 
@@ -1358,28 +1459,144 @@
         .sugerencia-chip:active {
             background: #46474a;
         }
+
+        /* ===== MENÚ LATERAL (cajón / hamburguesa) =====
+           Reemplaza la grilla de 11 botones que antes ocupaba toda la pantalla al
+           entrar. Ahora el header tiene un botón ☰ que abre este cajón deslizante,
+           igual que en apps tipo POS. Los .drawer-item llevan también la clase
+           .tab-btn para no tocar la lógica de cambiarTab(), que ya sabe manejar
+           "quitar active de todos los .tab-btn y ponérselo al pulsado". */
+        .btn-hamburger {
+            position: absolute;
+            left: 14px;
+            top: 18px;
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: rgba(255,255,255,0.18);
+            color: white;
+            border-radius: 10px;
+            font-size: 20px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-hamburger:active { background: rgba(255,255,255,0.32); }
+
+        .barra-tab-actual {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            background: #eef0fb;
+            border-bottom: 1px solid #dcdff2;
+            font-weight: 700;
+            color: #4a3f8a;
+            cursor: pointer;
+            position: relative;
+        }
+        .barra-tab-actual .icono-hamburger { font-size: 18px; }
+        .barra-tab-actual .icono { font-size: 19px; }
+        .barra-tab-actual .flecha { margin-left: auto; opacity: 0.6; font-size: 13px; }
+
+        .drawer-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(20, 18, 40, 0.5);
+            z-index: 9000;
+        }
+        .drawer-overlay.abierto { display: block; }
+
+        .drawer-menu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 82%;
+            max-width: 320px;
+            background: white;
+            z-index: 9001;
+            transform: translateX(-100%);
+            transition: transform 0.22s ease;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 6px 0 30px rgba(0,0,0,0.25);
+        }
+        .drawer-menu.abierto { transform: translateX(0); }
+
+        .drawer-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 26px 20px 18px;
+            flex-shrink: 0;
+        }
+        .drawer-header strong { font-size: 18px; display: block; }
+        .drawer-header span { font-size: 12px; opacity: 0.85; }
+
+        .drawer-lista {
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 6px 0;
+        }
+
+        .drawer-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 8px 16px;
+            border: none;
+            background: none;
+            text-align: left;
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #333;
+            cursor: pointer;
+        }
+        .drawer-item .drawer-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+        .drawer-item:active { background: #f2f2fa; }
+        .drawer-item.active {
+            background: #eef0fb;
+            color: #5b3fc9;
+            box-shadow: inset 4px 0 0 #667eea;
+        }
     </style>
 </head>
 <body>
+    <div id="toastGlobal" class="toast-global"></div>
     <div class="container">
         <div class="header">
+            <button type="button" class="btn-hamburger" onclick="abrirMenuLateral()" aria-label="Abrir menú">☰</button>
             <h1>📦 Gestor de Inventario Avanzado</h1>
             <p>Análisis inteligente de entradas y salidas con gráficos y estadísticas</p>
             <div id="indicadorGuardado" class="indicador-guardado">💾 Guardado</div>
         </div>
 
-        <div class="tabs">
-            <button class="tab-btn active" onclick="cambiarTab('dashboard', this)"><span class="tab-icon">📊</span><span class="tab-label">Dashboard</span></button>
-            <button class="tab-btn" onclick="cambiarTab('productos', this)"><span class="tab-icon">📦</span><span class="tab-label">Productos</span></button>
-            <button class="tab-btn" onclick="cambiarTab('historial', this)"><span class="tab-icon">📜</span><span class="tab-label">Historial</span></button>
-            <button class="tab-btn" onclick="cambiarTab('registro', this)"><span class="tab-icon">➕</span><span class="tab-label">Registrar</span></button>
-            <button class="tab-btn" onclick="cambiarTab('busqueda', this)"><span class="tab-icon">🔍</span><span class="tab-label">Búsqueda</span></button>
-            <button class="tab-btn" onclick="cambiarTab('reportes', this)"><span class="tab-icon">📋</span><span class="tab-label">Reportes</span></button>
-            <button class="tab-btn" onclick="cambiarTab('cmpPiso', this)"><span class="tab-icon">🔄</span><span class="tab-label">Piso vs Almacén</span></button>
-            <button class="tab-btn" onclick="cambiarTab('conteoAlmacen', this)"><span class="tab-icon">🧮</span><span class="tab-label">Conteo Almacén</span></button>
-            <button class="tab-btn" onclick="cambiarTab('almacenPrincipal', this)"><span class="tab-icon">🏭</span><span class="tab-label">Almacén Principal</span></button>
-            <button class="tab-btn" onclick="cambiarTab('respaldo', this)"><span class="tab-icon">💾</span><span class="tab-label">Respaldo</span></button>
-            <button class="tab-btn" onclick="cambiarTab('sincronizacion', this)"><span class="tab-icon">🌐</span><span class="tab-label">Stock en Vivo</span></button>
+        <span id="iconoTabActual" style="display:none;"></span>
+        <span id="nombreTabActual" style="display:none;"></span>
+
+        <div class="drawer-overlay" id="drawerOverlay" onclick="cerrarMenuLateral()"></div>
+        <div class="drawer-menu" id="drawerMenu">
+            <div class="drawer-header">
+                <strong>📦 Gestor de Inventario</strong>
+                <span>Avanzado</span>
+            </div>
+            <div class="drawer-lista">
+                <button class="drawer-item tab-btn active" onclick="seleccionarTabMenu('dashboard', this)"><span class="drawer-icon">📊</span><span class="drawer-label">Dashboard</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('productos', this)"><span class="drawer-icon">📦</span><span class="drawer-label">Productos</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('historial', this)"><span class="drawer-icon">📜</span><span class="drawer-label">Historial</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('registro', this)"><span class="drawer-icon">➕</span><span class="drawer-label">Registrar</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('busqueda', this)"><span class="drawer-icon">🔍</span><span class="drawer-label">Búsqueda</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('reportes', this)"><span class="drawer-icon">📋</span><span class="drawer-label">Reportes</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('conteoAlmacen', this)"><span class="drawer-icon">🧮</span><span class="drawer-label">Conteo Almacén</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('pedidos', this)"><span class="drawer-icon">📝</span><span class="drawer-label">Pedidos</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('respaldo', this)"><span class="drawer-icon">💾</span><span class="drawer-label">Respaldo</span></button>
+                <button class="drawer-item tab-btn" onclick="seleccionarTabMenu('sincronizacion', this)"><span class="drawer-icon">🌐</span><span class="drawer-label">Stock en Vivo</span></button>
+            </div>
         </div>
 
         <div class="content">
@@ -1689,9 +1906,6 @@
             <!-- ALMACÉN PRINCIPAL (bodega separada, ver / actualizar / transferir a Punto de Venta) -->
             <div id="almacenPrincipal" class="tab-content">
                 <h2>🏭 Almacén Principal</h2>
-                <div style="background: #e3f2fd; padding: 15px; border-radius: 16px; margin-bottom: 16px; border-left: 4px solid #2196f3;">
-                    <strong>💡 Qué es esto:</strong> una bodega separada del catálogo de "Productos" (que es tu Punto de Venta). La actualizas importando un Excel con Nombre, SKU y Cantidad — cada importación pisa la cantidad con lo que traiga el Excel. Desde aquí puedes transferir existencia hacia el Punto de Venta.
-                </div>
 
                 <div class="button-group">
                     <button class="btn btn-primary" onclick="abrirImportadorExcel('almacenPrincipal')">📥 Actualizar por Excel</button>
@@ -1700,6 +1914,7 @@
 
                 <input type="text" id="buscadorAlmacenPrincipal" placeholder="🔍 Buscar producto o SKU..." style="margin-top: 14px;" oninput="actualizarAlmacenPrincipalList()">
 
+                <button type="button" class="btn btn-secondary" id="btnVerResumenAlmacenPrincipal" onclick="alternarResumenTransferenciasAlmacenPrincipal()" style="display:none; margin-top: 14px; width: 100%;">📋 Ver resumen de transferencias</button>
                 <div id="resumenTransferenciasAlmacenPrincipal" style="display:none; margin-top: 14px;"></div>
 
                 <div style="margin: 14px 0;">
@@ -1711,6 +1926,98 @@
                 <div id="sinAlmacenPrincipal" class="empty-state" style="display: none;">
                     <div class="empty-state-icon">🏭</div>
                     <p>Todavía no hay productos en el Almacén Principal. Impórtalos con el botón de arriba.</p>
+                </div>
+            </div>
+
+            <!-- PEDIDOS DE TRANSFERENCIA: se arman aquí sin tocar el stock; solo al
+                 confirmar la recepción (comparando contra lo pedido) se registran los
+                 movimientos reales. -->
+            <div id="pedidos" class="tab-content">
+                <h2>📝 Pedidos de Transferencia</h2>
+
+                <!-- Todo lo que es "seguimiento" (el pedido que estás armando, los pendientes
+                     por confirmar, el historial y el resumen de la sesión) va aquí arriba,
+                     colapsado como un submenú, para no tapar el catálogo de productos. -->
+                <button type="button" class="btn btn-secondary" id="btnTogglePedidosResumenTop" onclick="alternarPedidosResumenTop()" style="width:100%; display:flex; justify-content:space-between; align-items:center; text-align:left;">
+                    <span id="tituloPedidosResumenTop">📋 Pedido en curso, pendientes e historial</span>
+                    <span id="iconoPedidosResumenTop">▾</span>
+                </button>
+                <div id="pedidosResumenTop" style="display:none; margin: 10px 0 18px; padding: 14px; background:#f8f8fc; border-radius:14px;">
+                    <h3 style="margin-top: 4px;">🧾 Productos en este pedido</h3>
+                    <div id="listaItemsPedidoNuevo"></div>
+
+                    <button type="button" class="btn btn-primary" id="btnGuardarPedidoNuevo" onclick="guardarPedidoNuevo()" style="display:none; margin-top:10px;">✅ Guardar Pedido</button>
+
+                    <h3 style="margin-top: 26px;">📋 Pedidos Pendientes</h3>
+                    <div id="listaPedidosPendientes"></div>
+                    <div id="sinPedidosPendientes" class="empty-state" style="display: none;">
+                        <div class="empty-state-icon">📝</div>
+                        <p>No tienes pedidos pendientes por confirmar.</p>
+                    </div>
+
+                    <h3 style="margin-top: 26px;">📜 Historial de Pedidos</h3>
+                    <div id="listaPedidosHistorial"></div>
+
+                    <!-- RESUMEN COMBINADO: lo que se confirmó desde pedidos en esta sesión,
+                         separado por destino (Almacén Punto de Venta / Piso de Venta), para
+                         no tener que ir a otra pestaña a verlo. -->
+                    <div id="resumenTransferenciasPedidos" style="display:none; margin-top: 20px;"></div>
+                </div>
+
+                <h3 style="margin-top: 4px;">➕ Nuevo pedido</h3>
+
+                <div class="form-group">
+                    <label>¿De dónde vas a pedir?</label>
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" id="btnOrigenPedidoAlmacen" class="btn-destino-transf activo" onclick="elegirOrigenPedido('almacenPrincipal')" style="flex:1;">🏭 Almacén Principal</button>
+                        <button type="button" id="btnOrigenPedidoPuntoVenta" class="btn-destino-transf" onclick="elegirOrigenPedido('puntoVenta')" style="flex:1;">🏬 Almacén Punto de Venta</button>
+                    </div>
+                </div>
+
+                <div class="button-group" style="margin-top: 6px;">
+                    <button class="btn btn-primary" onclick="abrirImportadorExcel('almacenPrincipal')">📥 Actualizar Almacén Principal (Excel)</button>
+                    <button class="btn btn-primary" onclick="abrirImportadorExcel('comparacion')">📥 Importar Excel del Punto de Venta</button>
+                    <button class="btn btn-secondary" id="btnAgregarProductoAlmacenPrincipalPedido" onclick="abrirModalAgregarAlmacenPrincipal()" style="display:none;">➕ Agregar producto al Almacén Principal</button>
+                </div>
+
+                <div class="form-group">
+                    <label for="pedidoCatalogoBuscador">Buscar producto (verás cuánto hay en cada lugar)</label>
+                    <input type="text" id="pedidoCatalogoBuscador" placeholder="🔍 Escribe el nombre o SKU... (vacío = ver todos)" autocomplete="off"
+                        oninput="renderizarCatalogoPedidoNuevo()">
+                </div>
+
+                <div class="toggle-card">
+                    <div class="toggle-card-text">
+                        <div class="toggle-card-title">🔀 Ocultar lo que no hay en el origen</div>
+                        <div class="toggle-card-desc">Encendido: solo muestra productos con existencia en el lugar de donde vas a transferir, para no perder tiempo revisando lo que está en cero.</div>
+                    </div>
+                    <button type="button" class="toggle-switch" id="btnOcultarSinExistenciaPedido" onclick="alternarOcultarSinExistenciaPedido()" role="switch" aria-checked="false">
+                        <span class="toggle-switch-thumb"></span>
+                    </button>
+                </div>
+
+                <div id="mensajePedidoNuevo"></div>
+                <div id="catalogoPedidoNuevo" class="cmp-lista" style="margin-top: 10px;"></div>
+            </div>
+
+            <!-- MODAL CONFIRMAR RECEPCIÓN DE PEDIDO: aquí se compara lo pedido contra lo
+                 realmente entregado, y solo al pulsar "Registrar Transferencia" se crean
+                 los movimientos (reutiliza la misma lógica que las transferencias sueltas,
+                 así el Historial y el "deshacer" funcionan igual). -->
+            <div id="modalConfirmarPedido" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                <div class="modal-box" style="max-width: 480px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <h2 style="margin: 0; font-size: 18px;">✅ Confirmar Recepción</h2>
+                        <button onclick="cerrarModalConfirmarPedido()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">✕</button>
+                    </div>
+                    <p style="font-size: 12.5px; color: #888; margin-bottom: 10px;">Compara lo que te entregó el almacenero contra lo que pediste. Ajusta la cantidad si llegó distinto — solo se registra lo que pongas aquí.</p>
+                    <div id="itemsConfirmarPedido"></div>
+                    <button type="button" class="btn btn-secondary" onclick="agregarItemExtraConfirmarPedido()" style="margin-top:8px;">➕ Agregar producto que llegó sin pedirlo</button>
+                    <div id="mensajeConfirmarPedido" style="margin-top:8px;"></div>
+                    <div class="button-group" style="margin-top: 12px;">
+                        <button type="button" class="btn btn-primary" onclick="registrarConfirmacionPedido()">✅ Registrar Transferencia</button>
+                        <button type="button" class="btn btn-secondary" onclick="cerrarModalConfirmarPedido()">Cancelar</button>
+                    </div>
                 </div>
             </div>
 
@@ -1769,7 +2076,7 @@
                     <div id="mensajeTransferirAlmPrincipal"></div>
 
                     <div class="button-group" style="margin-top: 10px;">
-                        <button type="button" class="btn btn-primary" onclick="confirmarTransferirAlmacenPrincipal()">✅ Transferir</button>
+                        <button type="button" class="btn btn-primary" id="btnConfirmarTransferirAlmPrincipal" onclick="confirmarTransferirAlmacenPrincipal()">✅ Transferir</button>
                         <button type="button" class="btn btn-secondary" onclick="cerrarModalTransferirAlmacenPrincipal()">Cancelar</button>
                     </div>
                 </div>
@@ -1860,11 +2167,12 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="producto">Producto *</label>
-                            <input type="text" id="producto" required
+                            <input type="text" id="producto" list="listaProductosRegistro" required
                                    placeholder="🔍 Escribe para buscar un producto..." autocomplete="off"
                                    oninput="autocompletarCamposProducto(); mostrarSugerenciasProducto(this)"
                                    onchange="autocompletarCamposProducto()"
                                    onfocus="mostrarSugerenciasProducto(this)" onblur="ocultarSugerenciasProducto()">
+                            <datalist id="listaProductosRegistro"></datalist>
                             <div id="infoStockProducto" style="font-size: 12px; margin-top: 4px; color: #666;"></div>
                         </div>
                         <div class="form-group">
@@ -2351,8 +2659,8 @@
 
                     <!-- ===== SINCRONIZAR MOVIMIENTOS ENTRE DISPOSITIVOS (tú y tu colega) ===== -->
                     <div id="bloqueSyncMovimientos" style="display:none; background: #f0fdf4; padding: 20px; border-radius: 16px; margin-bottom: 20px; border: 2px solid #a5d6a7;">
-                        <h3>4️⃣ Sincronizar movimientos con otro dispositivo (ej. tu colega)</h3>
-                        <p style="color:#444; margin: 8px 0;">Esto usa el mismo repositorio de arriba, así que no hace falta VPN. Cada dispositivo sube sus propios movimientos a una carpeta compartida y trae los del otro automáticamente, combinándolos sin duplicar.</p>
+                        <h3>4️⃣ Sincronizar movimientos con otros dispositivos (todos los que quieras)</h3>
+                        <p style="color:#444; margin: 8px 0;">Esto usa el mismo repositorio de arriba, así que no hace falta VPN. Cada dispositivo sube sus propios movimientos a una carpeta compartida (en su propio archivo) y trae automáticamente los de <strong>todos los demás</strong> dispositivos conectados, combinándolos sin duplicar. No hay límite de dos: puedes tener a José, Geovanny y a cualquier otro colega sincronizando al mismo tiempo, cada uno con su propio nombre.</p>
                         <div class="form-group">
                             <label for="nombreDispositivoInput">Nombre de este dispositivo</label>
                             <input type="text" id="nombreDispositivoInput" placeholder="ej: José o Geovanny" onchange="guardarNombreDispositivo()">
@@ -2795,6 +3103,42 @@
         }
 
         // CAMBIAR TAB
+        // Textos/íconos que se muestran en la barra "tab actual" debajo del header
+        // (reemplaza la grilla de botones que antes mostraba todo esto siempre visible).
+        const INFO_TABS = {
+            dashboard: { icono: '📊', nombre: 'Dashboard' },
+            productos: { icono: '📦', nombre: 'Productos' },
+            historial: { icono: '📜', nombre: 'Historial' },
+            registro: { icono: '➕', nombre: 'Registrar' },
+            busqueda: { icono: '🔍', nombre: 'Búsqueda' },
+            reportes: { icono: '📋', nombre: 'Reportes' },
+            cmpPiso: { icono: '🔄', nombre: 'Piso vs Almacén' },
+            conteoAlmacen: { icono: '🧮', nombre: 'Conteo Almacén' },
+            almacenPrincipal: { icono: '🏭', nombre: 'Almacén Principal' },
+            pedidos: { icono: '📝', nombre: 'Pedidos' },
+            respaldo: { icono: '💾', nombre: 'Respaldo' },
+            sincronizacion: { icono: '🌐', nombre: 'Stock en Vivo' }
+        };
+
+        function abrirMenuLateral() {
+            document.getElementById('drawerOverlay').classList.add('abierto');
+            document.getElementById('drawerMenu').classList.add('abierto');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function cerrarMenuLateral() {
+            document.getElementById('drawerOverlay').classList.remove('abierto');
+            document.getElementById('drawerMenu').classList.remove('abierto');
+            document.body.style.overflow = '';
+        }
+
+        // Se usa desde los botones del cajón: cambia de pestaña igual que antes y
+        // además cierra el cajón, para no tener que tocar dos veces.
+        function seleccionarTabMenu(tabName, btnPulsado) {
+            cambiarTab(tabName, btnPulsado);
+            cerrarMenuLateral();
+        }
+
         function cambiarTab(tabName, btnPulsado) {
             const tabs = document.querySelectorAll('.tab-content');
             tabs.forEach(tab => tab.classList.remove('active'));
@@ -2803,6 +3147,16 @@
             btns.forEach(btn => btn.classList.remove('active'));
 
             document.getElementById(tabName).classList.add('active');
+
+            // Actualiza la barra "tab actual" (icono + nombre) que quedó debajo del
+            // header ahora que la navegación vive en el cajón lateral.
+            const info = INFO_TABS[tabName];
+            if(info) {
+                const iconoEl = document.getElementById('iconoTabActual');
+                const nombreEl = document.getElementById('nombreTabActual');
+                if(iconoEl) iconoEl.textContent = info.icono;
+                if(nombreEl) nombreEl.textContent = info.nombre;
+            }
 
             // En la app compilada (APK), estas 3 pestañas tienen tablas anchas con
             // muchas columnas (fechas, cantidades, categorías, etc.) que se leen mejor
@@ -2846,6 +3200,18 @@
             } else if(tabName === 'almacenPrincipal') {
                 actualizarAlmacenPrincipalList();
                 renderizarResumenTransferenciasAlmacenPrincipal();
+            } else if(tabName === 'pedidos') {
+                elegirOrigenPedido(pedidoNuevoOrigen);
+                renderizarItemsPedidoNuevo();
+                renderizarListaPedidos();
+                const btnOcultar = document.getElementById('btnOcultarSinExistenciaPedido');
+                if(btnOcultar) {
+                    const activo = localStorage.getItem('ocultarSinExistenciaPedido') === '1';
+                    btnOcultar.classList.toggle('on', activo);
+                    btnOcultar.setAttribute('aria-checked', String(activo));
+                }
+                renderizarCatalogoPedidoNuevo();
+                renderizarResumenTransferenciasPedidos();
             }
         }
 
@@ -4123,14 +4489,19 @@
             return agregados;
         }
 
-        // ACTUALIZAR CAMPO DE PRODUCTOS DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
-        // Nota: ya no se usa un <datalist> nativo (Chrome dibujaba su propio menú por encima
-        // de la cinta de sugerencias propia, duplicando el listado). El propio input
-        // más la cinta #barraSugerenciasProductos cubren la búsqueda/autocompletado.
+        // ACTUALIZAR SELECT DE PRODUCTOS DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
         function actualizarProductosList() {
             const catalogo = cargarProductos();
             const input = document.getElementById('producto');
+            const datalist = document.getElementById('listaProductosRegistro');
             const valorActual = input.value;
+
+            const opciones = catalogo
+                .sort((a, b) => a.nombre.localeCompare(b.nombre))
+                .map(p => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre} (${p.sku})</option>`)
+                .join('');
+
+            datalist.innerHTML = opciones;
 
             // Conservar lo que se había escrito/seleccionado si el producto sigue existiendo
             if(valorActual && buscarProductoPorNombre(valorActual)) {
@@ -4720,6 +5091,14 @@
                     alert('🎉 Ningún producto está por debajo de su mínimo ahora mismo. Nada que reponer.');
                     return;
                 }
+            } else if(localStorage.getItem('soloDisponiblesReportes') !== '0') {
+                // Igual que en la exportación JSON/WhatsApp: con "Solo disponibles" encendido,
+                // el PDF de "stock actual" no debe listar los agotados (cantidad 0).
+                lista = lista.filter(p => p.cantidad > 0);
+                if(lista.length === 0) {
+                    alert('⚠️ No hay productos con existencia para listar (revisa el interruptor "Solo disponibles").');
+                    return;
+                }
             }
 
             const filas = lista.map(p => {
@@ -4763,15 +5142,56 @@
 </body>
 </html>`;
 
-            const ventana = window.open('', '_blank');
-            if(!ventana) {
-                alert('⚠️ El navegador bloqueó la ventana nueva. Permite las ventanas emergentes para poder generar el PDF, o vuelve a tocar el botón.');
-                return;
+            // Antes esto abría una window.open('', '_blank') y llamaba print() sobre esa
+            // ventana nueva. Dentro del APK compilado (Capacitor), esa ventana nueva no
+            // tiene ningún control para volver atrás, así que la persona quedaba atrapada
+            // viendo la lista en blanco después de cerrar el diálogo de impresión, y tenía
+            // que forzar el cierre de la app. imprimirHTMLenIframe() dispara el mismo
+            // diálogo "Guardar como PDF" pero sin salir nunca de la pantalla actual.
+            imprimirHTMLenIframe(html);
+        }
+
+        // Imprime un HTML (para "Guardar como PDF") usando un <iframe> oculto en vez de
+        // abrir una ventana/pestaña nueva. Esto evita quedar atrapado sin poder volver a
+        // la app dentro del WebView del APK: al no navegar nunca la pantalla principal,
+        // cerrar o cancelar el diálogo de impresión regresa directo a donde estabas.
+        function imprimirHTMLenIframe(html) {
+            const anterior = document.getElementById('iframeImpresionTemporal');
+            if(anterior) anterior.remove();
+
+            const iframe = document.createElement('iframe');
+            iframe.id = 'iframeImpresionTemporal';
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            iframe.style.opacity = '0';
+            document.body.appendChild(iframe);
+
+            const doc = iframe.contentWindow.document;
+            doc.open();
+            doc.write(html);
+            doc.close();
+
+            const disparar = () => {
+                try {
+                    iframe.contentWindow.focus();
+                    iframe.contentWindow.print();
+                } catch(e) {
+                    console.warn('No se pudo abrir el diálogo de impresión:', e);
+                    alert('⚠️ No se pudo abrir el diálogo de impresión. Inténtalo de nuevo.');
+                }
+                // Se retira el iframe pasado un rato, cuando el diálogo ya se disparó.
+                setTimeout(() => { if(iframe.parentNode) iframe.remove(); }, 2000);
+            };
+
+            if(iframe.contentWindow.document.readyState === 'complete') {
+                setTimeout(disparar, 200);
+            } else {
+                iframe.onload = () => setTimeout(disparar, 200);
             }
-            ventana.document.write(html);
-            ventana.document.close();
-            ventana.focus();
-            setTimeout(() => ventana.print(), 300);
         }
 
         // Abre WhatsApp con la lista de productos lista para enviar como mensaje de
@@ -4825,7 +5245,7 @@
             window.location.href = 'whatsapp://send?text=' + encodeURIComponent(texto);
         }
 
-        function descargarRespaldo() {
+        async function descargarRespaldo() {
             const datos = {
                 fecha_respaldo: new Date().toISOString(),
                 version: '2.1',
@@ -4833,13 +5253,12 @@
                 productos: cargarProductos(),
                 almacenPrincipal: cargarAlmacenPrincipal()
             };
-            
-            descargarArchivo(
+
+            await descargarArchivo(
                 JSON.stringify(datos, null, 2),
                 `respaldo_inventario_${new Date().toISOString().split('T')[0]}.json`,
                 'application/json'
             );
-            mostrarMensajeRespaldo('✅ Respaldo descargado correctamente', 'success');
         }
 
         // Descarga el mismo respaldo pero comprimido en un .zip real, generado con un
@@ -4847,7 +5266,7 @@
         // funcione offline). Usa el método "STORED" (sin compresión de datos, solo empaquetado),
         // así que el .zip pesa casi igual que el JSON, pero sirve para tener un solo archivo
         // y para quien prefiera subir/enviar un .zip en vez de un .json suelto.
-        function descargarRespaldoComprimido() {
+        async function descargarRespaldoComprimido() {
             const datos = {
                 fecha_respaldo: new Date().toISOString(),
                 version: '2.1',
@@ -4861,11 +5280,10 @@
 
             try {
                 const blobZip = crearZipSimple([{ nombre: nombreArchivoInterno, contenido: contenidoJson }]);
-                descargarArchivo(blobZip, nombreZip, 'application/zip');
-                mostrarMensajeRespaldo('✅ Respaldo comprimido (.zip) descargado correctamente', 'success');
+                await descargarArchivo(blobZip, nombreZip, 'application/zip');
             } catch(err) {
                 console.error('Error generando ZIP:', err);
-                mostrarMensajeRespaldo('❌ No se pudo generar el ZIP, descarga el respaldo normal (JSON) en su lugar.', 'error');
+                mostrarToastGlobal('❌ No se pudo generar el ZIP, descarga el respaldo normal (JSON) en su lugar.', 'error');
             }
         }
 
@@ -5896,6 +6314,7 @@
             cerrarModalAgregarAlmacenPrincipal();
             actualizarAlmacenPrincipalList();
             actualizarDashboard();
+            renderizarCatalogoPedidoNuevo();
         }
 
         function eliminarProductoAlmacenPrincipal(idx) {
@@ -5905,6 +6324,7 @@
             guardarAlmacenPrincipal(lista);
             actualizarAlmacenPrincipalList();
             actualizarDashboard();
+            renderizarCatalogoPedidoNuevo();
         }
 
         // Actualiza cantidades del Almacén Principal desde un Excel: si el producto ya
@@ -5958,6 +6378,10 @@
         // ===== TRANSFERIR ALMACÉN PRINCIPAL -> ALMACÉN PISO VENTA (catálogo) o PISO DE VENTA (directo) =====
         let transferirAlmPrincipalIdxActual = null;
         let destinoTransferAlmPrincipal = 'almacen'; // 'almacen' | 'piso'
+        // 'directo': el botón "Transferir" mueve el stock ya mismo (pestaña Almacén Principal).
+        // 'pedido': el botón "Agregar al pedido" solo lo suma al pedido en curso (pestaña
+        // Pedidos) — no toca el stock hasta que se confirme la recepción del pedido.
+        let transferirAlmPrincipalModo = 'directo';
 
         function elegirDestinoTransferAlmPrincipal(destino) {
             destinoTransferAlmPrincipal = destino;
@@ -5974,11 +6398,12 @@
             }
         }
 
-        function abrirModalTransferirAlmacenPrincipal(idx) {
+        function abrirModalTransferirAlmacenPrincipal(idx, modo) {
             const lista = cargarAlmacenPrincipal();
             const p = lista[idx];
             if(!p) return;
             transferirAlmPrincipalIdxActual = idx;
+            transferirAlmPrincipalModo = modo === 'pedido' ? 'pedido' : 'directo';
 
             document.getElementById('transferirAlmPrincipalNombre').textContent = p.nombre;
             document.getElementById('transferirAlmPrincipalStockInfo').textContent = `Hay ${p.cantidad} en el Almacén Principal ahora mismo.`;
@@ -5986,6 +6411,9 @@
             input.value = '';
             input.max = p.cantidad;
             document.getElementById('mensajeTransferirAlmPrincipal').innerHTML = '';
+
+            const btnConfirmar = document.getElementById('btnConfirmarTransferirAlmPrincipal');
+            if(btnConfirmar) btnConfirmar.textContent = transferirAlmPrincipalModo === 'pedido' ? '✅ Agregar al pedido' : '✅ Transferir';
 
             elegirDestinoTransferAlmPrincipal('almacen');
 
@@ -6022,6 +6450,31 @@
                 return;
             }
 
+            // Modo "pedido" (desde la pestaña Pedidos): no se mueve nada todavía, solo se
+            // suma al pedido en curso con el destino elegido aquí en el modal — el stock
+            // real se toca cuando José confirme la recepción del pedido, igual que si lo
+            // hubiera agregado con el cuadro de cantidad + "➕ Agregar al pedido".
+            if(transferirAlmPrincipalModo === 'pedido') {
+                if(destinoTransferAlmPrincipal === 'piso' && obtenerPisoVentaPara(p) === undefined) {
+                    msg.innerHTML = '<div class="alert alert-error">Este producto no tiene dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".</div>';
+                    return;
+                }
+                const destino = destinoTransferAlmPrincipal === 'piso' ? 'pisoVenta' : 'almacenPuntoVenta';
+                const existente = pedidoNuevoItems.find(it => it.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase() && it.destino === destino);
+                if(existente) {
+                    existente.cantidadPedida += cantidad;
+                } else {
+                    pedidoNuevoItems.push({ nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '', cantidadPedida: cantidad, destino });
+                }
+
+                cerrarModalTransferirAlmacenPrincipal();
+                renderizarItemsPedidoNuevo();
+                renderizarCatalogoPedidoNuevo();
+                const destinoTxt = destino === 'pisoVenta' ? 'directo al Piso de Venta' : 'al Almacén Punto de Venta';
+                mostrarMensajePedidoNuevo(`✅ "${p.nombre}" agregado al pedido: ${cantidad} (${destinoTxt}).`, 'success');
+                return;
+            }
+
             if(destinoTransferAlmPrincipal === 'piso') {
                 const r = resultadoComparacionPiso.find(x =>
                     (p.sku && (x.sku || '').trim().toUpperCase() === p.sku.trim().toUpperCase()) ||
@@ -6048,6 +6501,8 @@
 
                 cerrarModalTransferirAlmacenPrincipal();
                 actualizarAlmacenPrincipalList();
+                if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
+                renderizarResumenTransferenciasAlmacenPrincipal();
                 const contResumenPiso = document.getElementById('resumenComparacionPiso');
                 if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
                 if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
@@ -6083,6 +6538,8 @@
 
             cerrarModalTransferirAlmacenPrincipal();
             actualizarAlmacenPrincipalList();
+            if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
+            renderizarResumenTransferenciasAlmacenPrincipal();
             actualizarProductosList();
             actualizarListadoProductos();
             actualizarDashboard();
@@ -6146,14 +6603,27 @@
             return Array.from(porProducto.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
         }
 
+        // Controla si la caja de resumen está abierta o cerrada; ahora el resumen no
+        // aparece solo al hacer una transferencia, sino que se muestra/oculta con el
+        // botón "📋 Ver resumen de transferencias" que está arriba del listado.
+        let resumenAlmacenPrincipalAbierto = false;
+
+        function alternarResumenTransferenciasAlmacenPrincipal() {
+            resumenAlmacenPrincipalAbierto = !resumenAlmacenPrincipalAbierto;
+            renderizarResumenTransferenciasAlmacenPrincipal();
+        }
+
         function renderizarResumenTransferenciasAlmacenPrincipal() {
             const cont = document.getElementById('resumenTransferenciasAlmacenPrincipal');
+            const btn = document.getElementById('btnVerResumenAlmacenPrincipal');
             if(!cont) return;
             const lista = cargarTransferenciasSesionAlmacenPrincipal();
 
             if(lista.length === 0) {
+                if(btn) btn.style.display = 'none';
                 cont.style.display = 'none';
                 cont.innerHTML = '';
+                resumenAlmacenPrincipalAbierto = false;
                 return;
             }
 
@@ -6178,7 +6648,14 @@
                 </div>
             `;
 
-            cont.style.display = 'block';
+            if(btn) {
+                btn.style.display = 'inline-block';
+                btn.textContent = resumenAlmacenPrincipalAbierto
+                    ? '📋 Ocultar resumen de transferencias'
+                    : `📋 Ver resumen de transferencias (${agrupado.length})`;
+            }
+
+            cont.style.display = resumenAlmacenPrincipalAbierto ? 'block' : 'none';
             cont.innerHTML = `
                 <div class="resumen-transf-box">
                     <div class="resumen-transf-header">
@@ -6814,6 +7291,17 @@
             window.location.href = url;
         }
 
+        // Toast fijo a la pantalla (no depende de qué pestaña esté abierta) para
+        // confirmar guardados/exportaciones de archivos: respaldo, CSV, JSON, etc.
+        function mostrarToastGlobal(texto, tipo = 'success') {
+            const el = document.getElementById('toastGlobal');
+            if(!el) return;
+            el.textContent = texto;
+            el.className = 'toast-global visible' + (tipo === 'error' ? ' toast-error' : '');
+            clearTimeout(mostrarToastGlobal._timer);
+            mostrarToastGlobal._timer = setTimeout(() => el.classList.remove('visible'), 3200);
+        }
+
         // Descarga/guarda un archivo. Se intenta en este orden, de más confiable a
         // menos dentro de un APK:
         //   1) Plugin nativo propio "FileSaver" (MediaStore) -> guarda directo en
@@ -6824,6 +7312,8 @@
         //      guardar/enviar. Sirve de respaldo si el plugin no está instalado.
         //   3) <a download> con blob -> funciona en navegador de escritorio/Chrome
         //      Android, pero casi nunca escribe nada dentro de un WebView empaquetado.
+        // En los tres casos se confirma con el toast global (mostrarToastGlobal), que
+        // se ve sin importar en qué pestaña esté José, a diferencia de mostrarMensaje().
         async function descargarArchivo(contenido, nombre, tipo) {
             const blob = new Blob([contenido], { type: tipo });
 
@@ -6837,7 +7327,7 @@
                         datos: base64,
                         tipo: tipo
                     });
-                    mostrarMensaje(`💾 Guardado en ${res && res.ruta ? res.ruta : 'Descargas'}`, 'success');
+                    mostrarToastGlobal(`💾 Guardado en ${res && res.ruta ? res.ruta : 'Descargas'}`, 'success');
                     return;
                 } catch (err) {
                     console.warn('Plugin FileSaver falló, se intenta otra vía:', err);
@@ -6849,6 +7339,7 @@
                 const archivo = new File([blob], nombre, { type: tipo });
                 if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
                     await navigator.share({ files: [archivo], title: nombre });
+                    mostrarToastGlobal(`✅ "${nombre}" listo — elige dónde guardarlo o a quién enviarlo.`, 'success');
                     return;
                 }
             } catch (err) {
@@ -6865,6 +7356,7 @@
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
+            mostrarToastGlobal(`💾 "${nombre}" descargado.`, 'success');
         }
 
         // Convierte un Blob a base64 puro (sin el prefijo "data:...;base64,"),
@@ -7110,6 +7602,764 @@
                 temporizadorIndicador = setTimeout(() => el.classList.remove('visible'), 2000);
             };
         })();
+        // ===== PEDIDOS DE TRANSFERENCIA =====
+        // Un "pedido" es solo una lista guardada (Origen -> Destino + productos con
+        // cantidad pedida) que NO toca el stock para nada. Al confirmar la recepción
+        // (abrirModalConfirmarPedido / registrarConfirmacionPedido) es cuando de verdad
+        // se registran los movimientos, usando la cantidad REAL que se recibió — así se
+        // puede comparar contra lo pedido antes de que quede algo asentado.
+        function cargarPedidos() {
+            try { return JSON.parse(localStorage.getItem('pedidosTransferencia')) || []; }
+            catch(e) { return []; }
+        }
+
+        function guardarPedidos(lista) {
+            localStorage.setItem('pedidosTransferencia', JSON.stringify(lista));
+        }
+
+        let pedidoNuevoOrigen = 'almacenPrincipal';
+        let pedidoNuevoItems = [];
+
+        // Abre/cierra el submenú de arriba (pedido en curso, pendientes, historial y
+        // resumen), para que quede colapsado por defecto y no tape el catálogo de
+        // productos que está debajo.
+        let pedidosResumenTopAbierto = false;
+
+        function alternarPedidosResumenTop() {
+            pedidosResumenTopAbierto = !pedidosResumenTopAbierto;
+            const cont = document.getElementById('pedidosResumenTop');
+            const icono = document.getElementById('iconoPedidosResumenTop');
+            if(cont) cont.style.display = pedidosResumenTopAbierto ? 'block' : 'none';
+            if(icono) icono.textContent = pedidosResumenTopAbierto ? '▴' : '▾';
+        }
+
+        // Mantiene el título del submenú con un resumen rápido (cuántos productos hay en
+        // el pedido que se está armando y cuántos pedidos quedan pendientes por
+        // confirmar), para que José vea si hay algo pendiente sin tener que abrirlo.
+        function actualizarTituloPedidosResumenTop() {
+            const titulo = document.getElementById('tituloPedidosResumenTop');
+            if(!titulo) return;
+            const pedidos = cargarPedidos();
+            const pendientes = pedidos.filter(p => p.estado === 'pendiente').length;
+            const partes = [];
+            if(pedidoNuevoItems.length > 0) partes.push(`${pedidoNuevoItems.length} en el pedido actual`);
+            if(pendientes > 0) partes.push(`${pendientes} pendiente(s) por confirmar`);
+            titulo.textContent = partes.length > 0 ? `📋 ${partes.join(' · ')}` : '📋 Pedido en curso, pendientes e historial';
+        }
+
+        function mostrarMensajePedidoNuevo(texto, tipo) {
+            const msg = document.getElementById('mensajePedidoNuevo');
+            if(!msg) return;
+            const clase = tipo === 'success' ? 'alert-success' : 'alert-error';
+            msg.innerHTML = `<div class="alert ${clase}">${texto}</div>`;
+        }
+
+        // Todos los ítems de un mismo pedido comparten origen, así que una vez que ya hay
+        // productos agregados se bloquea el cambio (renderizarItemsPedidoNuevo deshabilita
+        // los botones); esta función solo actúa cuando el pedido está vacío.
+        function elegirOrigenPedido(origen) {
+            if(pedidoNuevoItems.length > 0) return;
+            pedidoNuevoOrigen = origen;
+
+            const btnAlm = document.getElementById('btnOrigenPedidoAlmacen');
+            const btnPV = document.getElementById('btnOrigenPedidoPuntoVenta');
+            if(btnAlm) btnAlm.classList.toggle('activo', origen === 'almacenPrincipal');
+            if(btnPV) btnPV.classList.toggle('activo', origen === 'puntoVenta');
+
+            const buscadorEl = document.getElementById('pedidoCatalogoBuscador');
+            if(buscadorEl) buscadorEl.value = '';
+
+            // Agregar/editar/eliminar productos "a mano" solo tiene sentido para el
+            // Almacén Principal: el catálogo del Punto de Venta se administra en la
+            // pestaña "Productos".
+            const btnAgregar = document.getElementById('btnAgregarProductoAlmacenPrincipalPedido');
+            if(btnAgregar) btnAgregar.style.display = origen === 'almacenPrincipal' ? '' : 'none';
+
+            renderizarCatalogoPedidoNuevo();
+        }
+
+        // ===== CATÁLOGO CON EXISTENCIAS DENTRO DE "NUEVO PEDIDO" =====
+        // Muestra, para el origen elegido (Almacén Principal o Almacén Punto de Venta),
+        // tarjetas con cuánto hay en cada lugar (igual que en la pestaña "Almacén
+        // Principal" / "Piso vs Almacén", ya eliminadas de la navegación), para que José
+        // sepa qué necesita antes de armar el pedido. El dato de "Piso de Venta" depende
+        // de que se haya importado el Excel del Punto de Venta; si no, se avisa en la
+        // propia tarjeta. No toca el stock: solo lee para mostrar. Se limita a 60
+        // resultados para no recargar el teléfono con las ~680 tarjetas de una vez.
+        function renderizarCatalogoPedidoNuevo() {
+            const cont = document.getElementById('catalogoPedidoNuevo');
+            if(!cont) return;
+            const buscadorEl = document.getElementById('pedidoCatalogoBuscador');
+            const q = (buscadorEl && buscadorEl.value || '').trim().toLowerCase();
+            const ocultarSinExistencia = localStorage.getItem('ocultarSinExistenciaPedido') === '1';
+
+            const catalogoCompleto = (pedidoNuevoOrigen === 'almacenPrincipal' ? cargarAlmacenPrincipal() : cargarProductos())
+                .map((p, idx) => ({ ...p, idx }));
+
+            let filtrados = q
+                ? catalogoCompleto.filter(p => p.nombre.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q))
+                : catalogoCompleto;
+
+            if(ocultarSinExistencia) {
+                filtrados = filtrados.filter(p => {
+                    const cant = pedidoNuevoOrigen === 'almacenPrincipal' ? p.cantidad : calcularStockProducto(p.nombre);
+                    return cant > 0;
+                });
+            }
+
+            filtrados = filtrados.sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+            if(filtrados.length === 0) {
+                cont.innerHTML = q || ocultarSinExistencia
+                    ? '<p style="text-align:center; color:#999; padding: 14px 0; font-size:13px;">No hay productos que coincidan con la búsqueda/filtro.</p>'
+                    : '<p style="text-align:center; color:#999; padding: 14px 0; font-size:13px;">No hay productos cargados en este origen todavía.</p>';
+                return;
+            }
+
+            cont.innerHTML = filtrados.map(p => {
+                let filasQty, cantidadOrigen;
+                const piso = obtenerPisoVentaPara(p);
+                let pisoTexto;
+                if(piso === undefined) pisoTexto = '<span style="color:#bbb; font-size:11px;">Importa Excel del Punto de Venta</span>';
+                else if(piso === null) pisoTexto = '-';
+                else pisoTexto = `<span style="${piso <= 0 ? 'color:#c0392b;' : ''}">${piso}</span>`;
+
+                if(pedidoNuevoOrigen === 'almacenPrincipal') {
+                    const stockPV = obtenerStockPuntoVentaPara(p);
+                    cantidadOrigen = p.cantidad;
+                    filasQty = `
+                        <div class="cmp-qty"><span class="cmp-qty-label">Almacén Principal</span><span class="cmp-qty-val">${p.cantidad}</span></div>
+                        <div class="cmp-qty"><span class="cmp-qty-label">Almacén Piso Venta</span><span class="cmp-qty-val">${stockPV === null ? '-' : stockPV}</span></div>
+                        <div class="cmp-qty"><span class="cmp-qty-label">Piso de Venta</span><span class="cmp-qty-val">${pisoTexto}</span></div>
+                    `;
+                } else {
+                    cantidadOrigen = calcularStockProducto(p.nombre);
+                    filasQty = `
+                        <div class="cmp-qty"><span class="cmp-qty-label">Almacén Punto de Venta</span><span class="cmp-qty-val">${cantidadOrigen}</span></div>
+                        <div class="cmp-qty"><span class="cmp-qty-label">Piso de Venta</span><span class="cmp-qty-val">${pisoTexto}</span></div>
+                    `;
+                }
+
+                const enPedido = pedidoNuevoItems.filter(it => it.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase());
+                let notaEnPedido = '';
+                if(enPedido.length > 0) {
+                    const origenTxt = pedidoNuevoOrigen === 'almacenPrincipal' ? 'Almacén Principal' : 'Almacén Punto de Venta';
+                    const detalleDestinos = enPedido.length === 1
+                        ? `${enPedido[0].cantidadPedida} (${enPedido[0].destino === 'pisoVenta' ? 'directo a Piso de Venta' : 'al Almacén Punto de Venta'})`
+                        : enPedido.map(it => it.cantidadPedida + ' (' + (it.destino === 'pisoVenta' ? 'piso' : 'almacén') + ')').join(' + ');
+                    // Cuánto quedaría en el origen (Almacén Principal o Almacén Punto de
+                    // Venta) si se confirmara el pedido tal como está armado ahora mismo.
+                    // Es solo informativo: el stock real no se toca hasta confirmar la
+                    // recepción, esto es nada más para que José vea el efecto mientras arma.
+                    const totalEnPedido = enPedido.reduce((s, it) => s + it.cantidadPedida, 0);
+                    const restante = cantidadOrigen - totalEnPedido;
+                    notaEnPedido = `
+                        <div style="font-size:11.5px; color:#2196f3; margin-top:4px;">🧾 Ya en el pedido: ${detalleDestinos}</div>
+                        <div style="font-size:11.5px; margin-top:2px; color:${restante < 0 ? '#d32f2f' : '#555'};">📉 Quedarían en ${origenTxt}: <strong>${restante}</strong></div>
+                    `;
+                }
+
+                // Editar/Eliminar el producto en sí (no del pedido) solo aplica al Almacén
+                // Principal, que es la única de las dos listas que se administra a mano
+                // desde aquí; el catálogo del Punto de Venta se edita en "Productos".
+                const accionesProducto = pedidoNuevoOrigen === 'almacenPrincipal' ? `
+                    <button type="button" class="btn-transferir" style="padding:8px 12px; font-size:12px;" onclick="abrirModalTransferirAlmacenPrincipal(${p.idx}, 'pedido')" ${p.cantidad > 0 ? '' : 'disabled'}>🎯 Elegir destino y agregar</button>
+                    <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:11.5px;" onclick="abrirModalAgregarAlmacenPrincipal(${p.idx})">✏️ Editar</button>
+                    <button type="button" class="btn btn-danger" style="padding:6px 10px; font-size:11.5px;" onclick="eliminarProductoAlmacenPrincipal(${p.idx})">🗑️</button>
+                ` : '';
+
+                return `
+                    <div class="cmp-card ${cantidadOrigen > 0 ? 'ok' : 'agotado'}">
+                        <div class="cmp-card-top">
+                            <div class="cmp-card-nombre">${escaparHtmlSimple(p.nombre)}</div>
+                        </div>
+                        <div class="cmp-card-qtys">${filasQty}</div>
+                        ${notaEnPedido}
+                        <div class="cmp-card-footer" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            ${pedidoNuevoOrigen === 'almacenPrincipal' ? '' : `
+                                <input type="number" min="1" step="1" inputmode="numeric" placeholder="Cant." id="pedidoCantCard_${p.idx}" style="max-width:90px;">
+                                <button type="button" class="btn-transferir" style="flex:1; min-width:120px;" onclick="agregarItemPedidoNuevoDesdeCard(${p.idx})">➕ Agregar al pedido</button>
+                            `}
+                            ${accionesProducto}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Preferencia guardada para que, al volver a la pestaña, se recuerde si José
+        // quería ver solo lo que hay existencia en el origen.
+        function alternarOcultarSinExistenciaPedido() {
+            const activo = localStorage.getItem('ocultarSinExistenciaPedido') === '1';
+            localStorage.setItem('ocultarSinExistenciaPedido', activo ? '0' : '1');
+            const btn = document.getElementById('btnOcultarSinExistenciaPedido');
+            if(btn) {
+                btn.classList.toggle('on', !activo);
+                btn.setAttribute('aria-checked', String(!activo));
+            }
+            renderizarCatalogoPedidoNuevo();
+        }
+
+        // Agrega un producto al pedido (lista pedidoNuevoItems) a partir de la cantidad
+        // escrita en su tarjeta. El idx es la posición original dentro de la lista del
+        // origen (Almacén Principal o Almacén Punto de Venta), no dentro de los filtrados.
+        // El destino se toma del interruptor "¿A dónde va cada producto...?" en ese
+        // momento (para Almacén Punto de Venta como origen siempre es Piso de Venta).
+        function agregarItemPedidoNuevoDesdeCard(idx) {
+            const catalogo = pedidoNuevoOrigen === 'almacenPrincipal' ? cargarAlmacenPrincipal() : cargarProductos();
+            const p = catalogo[idx];
+            if(!p) return;
+
+            const inputCant = document.getElementById('pedidoCantCard_' + idx);
+            const cantidad = parseFloat(inputCant && inputCant.value);
+            if(!cantidad || cantidad <= 0) {
+                mostrarMensajePedidoNuevo(`Indica una cantidad válida para "${p.nombre}".`, 'error');
+                return;
+            }
+
+            // Esta función ahora solo se usa con origen "Almacén Punto de Venta" (el
+            // Almacén Principal usa el modal "🎯 Elegir destino y agregar"), así que el
+            // destino siempre es directo al Piso de Venta.
+            const destino = 'pisoVenta';
+            const existente = pedidoNuevoItems.find(it => it.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase() && it.destino === destino);
+            if(existente) {
+                existente.cantidadPedida += cantidad;
+            } else {
+                pedidoNuevoItems.push({ nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '', cantidadPedida: cantidad, destino });
+            }
+
+            mostrarMensajePedidoNuevo(`✅ "${p.nombre}" agregado al pedido (directo al Piso de Venta).`, 'success');
+            renderizarItemsPedidoNuevo();
+            renderizarCatalogoPedidoNuevo();
+        }
+
+        function quitarItemPedidoNuevo(idx) {
+            pedidoNuevoItems.splice(idx, 1);
+            renderizarItemsPedidoNuevo();
+            renderizarCatalogoPedidoNuevo();
+        }
+
+        // Cuánto hay ahora mismo en el origen (Almacén Principal o Almacén Punto de
+        // Venta, según pedidoNuevoOrigen) para un producto por nombre — se usa para
+        // calcular "lo que quedaría" mientras se arma el pedido, sin tocar el stock real.
+        function obtenerCantidadOrigenPorNombre(nombre) {
+            if(pedidoNuevoOrigen === 'almacenPrincipal') {
+                const p = cargarAlmacenPrincipal().find(x => x.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
+                return p ? p.cantidad : null;
+            }
+            return calcularStockProducto(nombre);
+        }
+
+        function renderizarItemsPedidoNuevo() {
+            const cont = document.getElementById('listaItemsPedidoNuevo');
+            const btnGuardar = document.getElementById('btnGuardarPedidoNuevo');
+            if(!cont) return;
+            actualizarTituloPedidosResumenTop();
+
+            // Solo el origen queda bloqueado una vez hay productos (todos comparten de
+            // dónde salen); el destino se puede seguir cambiando producto a producto.
+            const bloqueado = pedidoNuevoItems.length > 0;
+            ['btnOrigenPedidoAlmacen', 'btnOrigenPedidoPuntoVenta'].forEach(id => {
+                const b = document.getElementById(id);
+                if(b) { b.disabled = bloqueado; b.style.opacity = bloqueado ? '0.5' : '1'; }
+            });
+
+            if(pedidoNuevoItems.length === 0) {
+                cont.innerHTML = '<p style="color:#999; font-size: 13px;">Todavía no agregaste productos a este pedido.</p>';
+                if(btnGuardar) btnGuardar.style.display = 'none';
+                return;
+            }
+
+            const fila = (it, idx) => {
+                // Suma todo lo que hay en el pedido para este mismo producto (puede haber
+                // más de una fila si se mandó parte al Almacén Punto de Venta y parte
+                // directo al Piso de Venta) para saber cuánto se está sacando en total del
+                // origen, y así calcular lo que quedaría ahí si se confirma tal como está.
+                const totalMismoProducto = pedidoNuevoItems
+                    .filter(x => x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase())
+                    .reduce((s, x) => s + x.cantidadPedida, 0);
+                const origenActual = obtenerCantidadOrigenPorNombre(it.nombre);
+                const restanteTxt = origenActual === null ? '' : `<div style="font-size:11.5px; margin-top:2px; color:${(origenActual - totalMismoProducto) < 0 ? '#d32f2f' : '#888'};">📉 Quedarían: ${origenActual - totalMismoProducto}</div>`;
+                return `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background:#f8f8fc; border-radius:10px; margin-bottom:6px;">
+                    <div>
+                        <div style="font-weight:600; font-size:13.5px;">${it.nombre}</div>
+                        <div style="font-size:12px; color:#888;">Pedido: ${it.cantidadPedida} ${it.unidad || ''}</div>
+                        ${restanteTxt}
+                    </div>
+                    <button type="button" onclick="quitarItemPedidoNuevo(${idx})" style="background:none; border:none; color:#e53935; font-size:18px; cursor:pointer;">🗑️</button>
+                </div>
+            `;
+            };
+
+            // Cuando el origen es Almacén Principal puede haber ítems con destinos
+            // distintos en el mismo pedido, así que el resumen se agrupa igual que
+            // antes se veía separado: un bloque para lo que va al Almacén Punto de
+            // Venta y otro para lo que va directo al Piso de Venta.
+            if(pedidoNuevoOrigen === 'almacenPrincipal') {
+                const idxAlmacen = [], idxPiso = [];
+                pedidoNuevoItems.forEach((it, idx) => (it.destino === 'pisoVenta' ? idxPiso : idxAlmacen).push(idx));
+
+                const bloque = (titulo, indices) => indices.length === 0 ? '' : `
+                    <div style="font-size:12.5px; font-weight:700; color:#555; margin:10px 0 4px;">${titulo}</div>
+                    ${indices.map(idx => fila(pedidoNuevoItems[idx], idx)).join('')}
+                `;
+
+                cont.innerHTML = bloque('🏬 Al Almacén Punto de Venta', idxAlmacen) + bloque('🧍 Directo al Piso de Venta', idxPiso);
+            } else {
+                cont.innerHTML = pedidoNuevoItems.map((it, idx) => fila(it, idx)).join('');
+            }
+
+            if(btnGuardar) btnGuardar.style.display = '';
+        }
+
+        function guardarPedidoNuevo() {
+            if(pedidoNuevoItems.length === 0) {
+                mostrarMensajePedidoNuevo('Agrega al menos un producto antes de guardar el pedido.', 'error');
+                return;
+            }
+            const pedido = {
+                id: Date.now(),
+                fecha: new Date().toISOString(),
+                origen: pedidoNuevoOrigen,
+                items: pedidoNuevoItems.map(it => ({ nombre: it.nombre, sku: it.sku, unidad: it.unidad, cantidadPedida: it.cantidadPedida, destino: it.destino, cantidadRecibida: null })),
+                estado: 'pendiente',
+                fechaConfirmacion: null
+            };
+            const pedidos = cargarPedidos();
+            pedidos.push(pedido);
+            guardarPedidos(pedidos);
+
+            pedidoNuevoItems = [];
+            const buscadorEl = document.getElementById('pedidoCatalogoBuscador');
+            if(buscadorEl) buscadorEl.value = '';
+            renderizarItemsPedidoNuevo();
+            renderizarListaPedidos();
+            renderizarCatalogoPedidoNuevo();
+            mostrarMensajePedidoNuevo('✅ Pedido guardado. Cuando te entreguen los productos, confírmalo desde "Pedidos Pendientes".', 'success');
+            setTimeout(() => { const m = document.getElementById('mensajePedidoNuevo'); if(m) m.innerHTML = ''; }, 4500);
+        }
+
+        // El destino ahora vive por producto (pedido.items[].destino), no en el pedido,
+        // porque un mismo pedido puede repartir productos entre el Almacén Punto de
+        // Venta y el Piso de Venta. Aquí se resume para las cabeceras de las listas.
+        function textoOrigenDestinoPedido(pedido) {
+            const origenTxt = pedido.origen === 'almacenPrincipal' ? '🏭 Almacén Principal' : '🏬 Almacén Punto de Venta';
+            const destinos = new Set(pedido.items.map(it => it.destino || (pedido.origen === 'puntoVenta' ? 'pisoVenta' : 'almacenPuntoVenta')));
+            let destinoTxt;
+            if(destinos.size > 1) destinoTxt = '🏬🧍 Almacén Punto de Venta + Piso de Venta';
+            else destinoTxt = destinos.has('pisoVenta') ? '🧍 Piso de Venta' : '🏬 Almacén Punto de Venta';
+            return `${origenTxt} → ${destinoTxt}`;
+        }
+
+        function renderizarListaPedidos() {
+            actualizarTituloPedidosResumenTop();
+            const pedidos = cargarPedidos();
+            const pendientes = pedidos.filter(p => p.estado === 'pendiente').sort((a, b) => b.id - a.id);
+            const historial = pedidos.filter(p => p.estado !== 'pendiente').sort((a, b) => b.id - a.id).slice(0, 30);
+
+            const contPend = document.getElementById('listaPedidosPendientes');
+            const sinPend = document.getElementById('sinPedidosPendientes');
+            if(contPend) {
+                if(pendientes.length === 0) {
+                    contPend.innerHTML = '';
+                    if(sinPend) sinPend.style.display = '';
+                } else {
+                    if(sinPend) sinPend.style.display = 'none';
+                    contPend.innerHTML = pendientes.map(p => `
+                        <div style="background:#fff; border:1px solid #e5e5f0; border-radius:12px; padding:12px 14px; margin-bottom:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <strong style="font-size:13.5px;">${textoOrigenDestinoPedido(p)}</strong>
+                                <span style="font-size:11.5px; color:#999;">${formatearFecha(p.fecha.split('T')[0])}</span>
+                            </div>
+                            <div style="font-size:12.5px; color:#666; margin-bottom:8px;">${p.items.length} producto(s): ${p.items.map(it => it.nombre + ' (' + it.cantidadPedida + (p.origen === 'almacenPrincipal' ? ', ' + (it.destino === 'pisoVenta' ? '🧍' : '🏬') : '') + ')').join(', ')}</div>
+                            <div class="button-group">
+                                <button type="button" class="btn btn-primary" style="padding:8px 12px; font-size:12.5px;" onclick="abrirModalConfirmarPedido(${p.id})">✅ Confirmar Recepción</button>
+                                <button type="button" class="btn btn-secondary" style="padding:8px 12px; font-size:12.5px;" onclick="cancelarPedido(${p.id})">🗑️ Cancelar</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            const contHist = document.getElementById('listaPedidosHistorial');
+            if(contHist) {
+                if(historial.length === 0) {
+                    contHist.innerHTML = '<p style="color:#999; font-size:13px;">Todavía no has confirmado ni cancelado ningún pedido.</p>';
+                } else {
+                    contHist.innerHTML = historial.map(p => {
+                        const discrepancias = p.items.filter(it => it.cantidadRecibida !== null && it.cantidadRecibida !== it.cantidadPedida);
+                        const estadoTxt = p.estado === 'confirmado' ? '✅ Confirmado' : '🗑️ Cancelado';
+                        return `
+                        <div style="background:#f8f8fc; border-radius:12px; padding:12px 14px; margin-bottom:8px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                <strong style="font-size:13px;">${textoOrigenDestinoPedido(p)}</strong>
+                                <span style="font-size:11.5px; color:#999;">${estadoTxt}</span>
+                            </div>
+                            <div style="font-size:12px; color:#888;">
+                                ${p.items.map(it => `${it.nombre}: pedido ${it.cantidadPedida}${it.cantidadRecibida !== null ? ', recibido ' + it.cantidadRecibida : ''}`).join(' · ')}
+                            </div>
+                            ${discrepancias.length > 0 ? `<div style="font-size:11.5px; color:#e08b00; margin-top:4px;">⚠️ Hubo diferencias respecto a lo pedido</div>` : ''}
+                        </div>`;
+                    }).join('');
+                }
+            }
+        }
+
+        function cancelarPedido(id) {
+            if(!confirm('¿Cancelar este pedido? No se registrará ningún movimiento.')) return;
+            const pedidos = cargarPedidos();
+            const pedido = pedidos.find(p => p.id === id);
+            if(!pedido) return;
+            pedido.estado = 'cancelado';
+            guardarPedidos(pedidos);
+            renderizarListaPedidos();
+            mostrarMensaje('Pedido cancelado.', 'success');
+        }
+
+        // ===== CONFIRMAR RECEPCIÓN DE UN PEDIDO =====
+        let pedidoConfirmarId = null;
+        let itemsConfirmarPedido = [];
+
+        function abrirModalConfirmarPedido(id) {
+            const pedidos = cargarPedidos();
+            const pedido = pedidos.find(p => p.id === id);
+            if(!pedido) return;
+            pedidoConfirmarId = id;
+            itemsConfirmarPedido = pedido.items.map(it => ({
+                nombre: it.nombre, sku: it.sku, unidad: it.unidad,
+                cantidadPedida: it.cantidadPedida,
+                cantidadRecibida: it.cantidadPedida,
+                destino: it.destino || (pedido.origen === 'puntoVenta' ? 'pisoVenta' : 'almacenPuntoVenta'),
+                esExtra: false
+            }));
+            const msg = document.getElementById('mensajeConfirmarPedido');
+            if(msg) msg.innerHTML = '';
+            renderizarItemsConfirmarPedido();
+            document.getElementById('modalConfirmarPedido').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function cerrarModalConfirmarPedido() {
+            document.getElementById('modalConfirmarPedido').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            pedidoConfirmarId = null;
+            itemsConfirmarPedido = [];
+        }
+
+        function renderizarItemsConfirmarPedido() {
+            const cont = document.getElementById('itemsConfirmarPedido');
+            if(!cont) return;
+            cont.innerHTML = itemsConfirmarPedido.map((it, idx) => {
+                const diff = it.cantidadRecibida - it.cantidadPedida;
+                let badge;
+                if(it.esExtra) badge = '<span style="font-size:11px; color:#2196f3;">producto extra, no estaba pedido</span>';
+                else if(diff === 0) badge = '<span style="font-size:11px; color:#2e7d32;">✓ igual a lo pedido</span>';
+                else if(diff > 0) badge = `<span style="font-size:11px; color:#2196f3;">+${diff} de más</span>`;
+                else badge = `<span style="font-size:11px; color:#e53935;">${diff} de menos</span>`;
+
+                const destinoTxt = it.destino === 'pisoVenta' ? '🧍 Piso de Venta' : '🏬 Almacén Punto de Venta';
+
+                return `
+                <div style="padding:10px 12px; background:#f8f8fc; border-radius:10px; margin-bottom:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <div style="font-weight:600; font-size:13px;">${it.nombre}</div>
+                        ${it.esExtra ? `<button type="button" onclick="quitarItemExtraConfirmarPedido(${idx})" style="background:none; border:none; color:#e53935; font-size:16px; cursor:pointer;">🗑️</button>` : ''}
+                    </div>
+                    <div style="font-size:12px; color:#888; margin-bottom:4px;">${it.esExtra ? 'No estaba en el pedido' : 'Pedido: ' + it.cantidadPedida + ' ' + (it.unidad || '')} · <span style="color:#666;">${destinoTxt}</span></div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="font-size:12px; color:#666;">Recibido:</label>
+                        <input type="number" min="0" step="1" inputmode="numeric" value="${it.cantidadRecibida}" style="max-width:90px;" onchange="actualizarCantidadRecibidaConfirmar(${idx}, this.value)">
+                        ${badge}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function actualizarCantidadRecibidaConfirmar(idx, valor) {
+            const n = parseFloat(valor);
+            itemsConfirmarPedido[idx].cantidadRecibida = (isNaN(n) || n < 0) ? 0 : n;
+            renderizarItemsConfirmarPedido();
+        }
+
+        function quitarItemExtraConfirmarPedido(idx) {
+            itemsConfirmarPedido.splice(idx, 1);
+            renderizarItemsConfirmarPedido();
+        }
+
+        // Producto que llegó pero no estaba en el pedido original: se pide por prompt()
+        // porque es un caso poco frecuente y así no hay que duplicar toda la cinta de
+        // sugerencias dentro del modal. Debe existir ya en el origen del pedido.
+        function agregarItemExtraConfirmarPedido() {
+            const pedidos = cargarPedidos();
+            const pedido = pedidos.find(p => p.id === pedidoConfirmarId);
+            if(!pedido) return;
+            const origenNombre = pedido.origen === 'almacenPrincipal' ? 'el Almacén Principal' : 'el Almacén Punto de Venta';
+            const nombre = prompt(`Nombre exacto del producto que llegó (debe existir ya en ${origenNombre}):`);
+            if(!nombre) return;
+            const origenLista = pedido.origen === 'almacenPrincipal' ? cargarAlmacenPrincipal() : cargarProductos();
+            const p = origenLista.find(x => x.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
+            if(!p) {
+                const msg = document.getElementById('mensajeConfirmarPedido');
+                if(msg) msg.innerHTML = `<div class="alert alert-error">"${nombre}" no existe en ${origenNombre}. Revisa el nombre exacto.</div>`;
+                return;
+            }
+            const cantidadTexto = prompt(`¿Cuánto llegó de "${p.nombre}"?`);
+            const cantidad = parseFloat(cantidadTexto);
+            if(!cantidad || cantidad <= 0) return;
+
+            let destino = 'pisoVenta';
+            if(pedido.origen === 'almacenPrincipal') {
+                destino = confirm(`¿"${p.nombre}" va directo al Piso de Venta?\n\nAceptar = Piso de Venta\nCancelar = Almacén Punto de Venta`) ? 'pisoVenta' : 'almacenPuntoVenta';
+            }
+
+            itemsConfirmarPedido.push({ nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '', cantidadPedida: 0, cantidadRecibida: cantidad, destino, esExtra: true });
+            renderizarItemsConfirmarPedido();
+        }
+
+        // Registra los movimientos reales de la transferencia usando la cantidad
+        // RECIBIDA (no la pedida). Reutiliza las mismas funciones que ya usan las
+        // transferencias sueltas (registrarMovimientoTransferencia, el mismo formato de
+        // movimiento tipo "salida" hacia Piso de Venta) para que el Historial y el
+        // "deshacer" de cada movimiento funcionen exactamente igual que siempre.
+        // Es todo o nada: si algo no cuadra (no hay existencia suficiente, falta el dato
+        // de Piso de Venta, etc.) no se registra ningún movimiento del pedido.
+        function registrarConfirmacionPedido() {
+            const msg = document.getElementById('mensajeConfirmarPedido');
+            const pedidos = cargarPedidos();
+            const pedido = pedidos.find(p => p.id === pedidoConfirmarId);
+            if(!pedido) { cerrarModalConfirmarPedido(); return; }
+
+            const itemsAConfirmar = itemsConfirmarPedido.filter(it => it.cantidadRecibida > 0);
+            if(itemsAConfirmar.length === 0) {
+                msg.innerHTML = '<div class="alert alert-error">No hay ninguna cantidad recibida mayor que cero.</div>';
+                return;
+            }
+
+            const errores = [];
+            if(pedido.origen === 'almacenPrincipal') {
+                const almacen = cargarAlmacenPrincipal();
+                itemsAConfirmar.forEach(it => {
+                    const p = almacen.find(x => (it.sku && (x.sku || '').trim().toUpperCase() === it.sku.trim().toUpperCase()) || x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase());
+                    if(!p) errores.push(`"${it.nombre}" ya no existe en el Almacén Principal.`);
+                    else if(it.cantidadRecibida > p.cantidad) errores.push(`Solo hay ${p.cantidad} de "${it.nombre}" en el Almacén Principal (pusiste ${it.cantidadRecibida}).`);
+                });
+                itemsAConfirmar.filter(it => it.destino === 'pisoVenta').forEach(it => {
+                    const r = resultadoComparacionPiso.find(x => (it.sku && (x.sku || '').trim().toUpperCase() === it.sku.trim().toUpperCase()) || x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase());
+                    if(!r || r.piso === null) errores.push(`"${it.nombre}" no tiene dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".`);
+                });
+            } else {
+                itemsAConfirmar.forEach(it => {
+                    const producto = buscarProductoPorNombre(it.nombre);
+                    if(!producto) { errores.push(`"${it.nombre}" ya no existe en el catálogo.`); return; }
+                    const stockDisponible = calcularStockProducto(it.nombre);
+                    if(it.cantidadRecibida > stockDisponible) errores.push(`Solo hay ${stockDisponible} ${producto.unidad} de "${it.nombre}" en el Almacén Punto de Venta (pusiste ${it.cantidadRecibida}).`);
+                    const r = resultadoComparacionPiso.find(x => (producto.sku && (x.sku || '').trim().toUpperCase() === producto.sku.trim().toUpperCase()) || x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase());
+                    if(!r || r.piso === null) errores.push(`"${it.nombre}" no tiene dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".`);
+                });
+            }
+
+            if(errores.length > 0) {
+                msg.innerHTML = `<div class="alert alert-error">${errores.join('<br>')}</div>`;
+                return;
+            }
+
+            itemsAConfirmar.forEach(it => {
+                if(pedido.origen === 'almacenPrincipal') {
+                    let almacen = cargarAlmacenPrincipal();
+                    const p = almacen.find(x => (it.sku && (x.sku || '').trim().toUpperCase() === it.sku.trim().toUpperCase()) || x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase());
+
+                    if(it.destino === 'pisoVenta') {
+                        const r = resultadoComparacionPiso.find(x => (it.sku && (x.sku || '').trim().toUpperCase() === it.sku.trim().toUpperCase()) || x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase());
+                        r.piso += it.cantidadRecibida;
+                        if(r.total !== null) r.total += it.cantidadRecibida;
+                        const minimo = 10;
+                        if(r.piso <= 0) r.estado = 'agotado'; else if(r.piso <= minimo) r.estado = 'bajo'; else r.estado = 'ok';
+                        guardarResultadoComparacionPiso();
+
+                        p.cantidad -= it.cantidadRecibida;
+                        guardarAlmacenPrincipal(almacen);
+
+                        registrarTransferenciaSesionAlmacenPrincipal(p.nombre, it.cantidadRecibida, '', 'piso');
+                        registrarMovimientoTransferencia(p, it.cantidadRecibida, '', 'Piso de Venta');
+                    } else {
+                        let productos = cargarProductos();
+                        let producto = buscarProductoPorNombre(p.nombre);
+                        if(!producto && p.sku) producto = productos.find(x => (x.sku || '').trim().toUpperCase() === p.sku.trim().toUpperCase());
+                        if(!producto) {
+                            producto = {
+                                nombre: p.nombre,
+                                sku: p.sku || generarSkuUnico('Sin categoría', new Set(productos.filter(x => x.sku).map(x => x.sku.trim().toUpperCase()))),
+                                categoria: 'Sin categoría', unidad: 'piezas',
+                                stockInicial: 0, stockMinimo: 10, fechaCreacion: new Date().toISOString()
+                            };
+                            productos.push(producto);
+                            guardarProductosCatalogo(productos);
+                        }
+                        registrarMovimientoTransferencia(p, it.cantidadRecibida, producto.unidad, 'Almacén Punto de Venta', producto);
+                        p.cantidad -= it.cantidadRecibida;
+                        guardarAlmacenPrincipal(almacen);
+                        registrarTransferenciaSesionAlmacenPrincipal(p.nombre, it.cantidadRecibida, producto.unidad, 'almacen');
+                    }
+                } else {
+                    const producto = buscarProductoPorNombre(it.nombre);
+                    const movimiento = {
+                        id: Date.now() + Math.floor(Math.random() * 1000),
+                        tipo: 'salida',
+                        fecha: new Date().toISOString().split('T')[0],
+                        producto: producto.nombre,
+                        cantidad: it.cantidadRecibida,
+                        unidad: producto.unidad,
+                        referencia: producto.sku,
+                        categoria: producto.categoria || 'Sin categoría',
+                        observaciones: 'Transferencia a piso de venta',
+                        registradoPor: localStorage.getItem('ultimoRegistradoPor') || ''
+                    };
+                    let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
+                    movimientos.push(movimiento);
+                    guardarMovimientosYSync(movimientos);
+
+                    const r = resultadoComparacionPiso.find(x => (producto.sku && (x.sku || '').trim().toUpperCase() === producto.sku.trim().toUpperCase()) || x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase());
+                    r.almacen -= it.cantidadRecibida;
+                    r.piso += it.cantidadRecibida;
+                    const minimo = (producto.stockMinimo === undefined || producto.stockMinimo === null) ? 10 : producto.stockMinimo;
+                    if(r.piso <= 0) r.estado = 'agotado'; else if(r.piso <= minimo) r.estado = 'bajo'; else r.estado = 'ok';
+                    guardarResultadoComparacionPiso();
+
+                    registrarTransferenciaSesion(producto.nombre, it.cantidadRecibida, producto.unidad);
+                }
+            });
+
+            pedido.estado = 'confirmado';
+            pedido.fechaConfirmacion = new Date().toISOString();
+            pedido.items = itemsConfirmarPedido.map(it => ({ nombre: it.nombre, sku: it.sku, unidad: it.unidad, cantidadPedida: it.cantidadPedida, destino: it.destino, cantidadRecibida: it.cantidadRecibida }));
+            guardarPedidos(pedidos);
+
+            cerrarModalConfirmarPedido();
+            renderizarListaPedidos();
+            actualizarAlmacenPrincipalList();
+            actualizarProductosList();
+            actualizarListadoProductos();
+            actualizarDashboard();
+            actualizarHistorialEditable();
+            const contResumenPiso = document.getElementById('resumenComparacionPiso');
+            if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+            if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
+            renderizarResumenTransferenciasAlmacenPrincipal();
+            renderizarResumenTransferenciasPiso();
+            renderizarResumenTransferenciasPedidos();
+
+            const discrepancias = itemsAConfirmar.filter(it => !it.esExtra && it.cantidadRecibida !== it.cantidadPedida);
+            let textoFinal = '✅ Transferencia registrada.';
+            if(discrepancias.length > 0) textoFinal += ` Hubo diferencias en ${discrepancias.length} producto(s) respecto a lo pedido.`;
+            mostrarMensaje(textoFinal, 'success');
+        }
+
+        // ===== RESUMEN COMBINADO DE PEDIDOS CONFIRMADOS (dentro de la propia pestaña Pedidos) =====
+        // Junta las dos "libretas" de sesión que ya existían (transferenciasSesionAlmacenPrincipal,
+        // para lo que sale del Almacén Principal, y transferenciasSesionPiso, para lo que sale
+        // directo del Almacén Punto de Venta al piso) en un solo resumen con dos bloques, igual
+        // que se veía antes por separado en "Almacén Principal" y "Piso vs Almacén". Así José no
+        // tiene que cambiar de pestaña para confirmar lo que ya se movió.
+        function renderizarResumenTransferenciasPedidos() {
+            const cont = document.getElementById('resumenTransferenciasPedidos');
+            if(!cont) return;
+
+            const sesionAlmacen = agruparTransferenciasAlmacenPrincipal(cargarTransferenciasSesionAlmacenPrincipal());
+            const alAlmacen = sesionAlmacen.filter(p => p.destino === 'almacen');
+            const alPisoDesdeAlmacen = sesionAlmacen.filter(p => p.destino === 'piso');
+            const alPisoDesdePuntoVenta = agruparPorNombre(cargarTransferenciasSesion());
+            const alPiso = [...alPisoDesdeAlmacen, ...alPisoDesdePuntoVenta].sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+            const totalProductos = alAlmacen.length + alPiso.length;
+            if(totalProductos === 0) {
+                cont.style.display = 'none';
+                cont.innerHTML = '';
+                return;
+            }
+            const totalUnidades = alAlmacen.reduce((s, p) => s + p.cantidad, 0) + alPiso.reduce((s, p) => s + p.cantidad, 0);
+
+            const bloque = (titulo, items) => items.length === 0 ? '' : `
+                <div style="margin-top:8px;">
+                    <div style="font-size:12.5px; font-weight:700; color:#555; margin-bottom:4px;">${titulo}</div>
+                    <div class="resumen-transf-lista">
+                        ${items.map(p => `
+                            <div class="resumen-transf-item">
+                                <span class="resumen-transf-item-nombre">${escaparHtmlSimple(p.nombre)}</span>
+                                <span class="resumen-transf-item-cant">${p.cantidad} ${escaparHtmlSimple(p.unidad || '')}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            cont.style.display = 'block';
+            cont.innerHTML = `
+                <div class="resumen-transf-box">
+                    <div class="resumen-transf-header">
+                        <div class="resumen-transf-titulo">📋 Resumen de pedidos confirmados (esta sesión)</div>
+                    </div>
+                    <div class="resumen-transf-total">
+                        <strong>${totalProductos}</strong> producto(s), <strong>${totalUnidades}</strong> unidad(es) en total.
+                    </div>
+                    ${bloque('🏬 Al Almacén Punto de Venta', alAlmacen)}
+                    ${bloque('🧍 Al Piso de Venta', alPiso)}
+                    <div class="button-group">
+                        <button class="btn btn-secondary" style="background:#25d366; color:#fff;" onclick="compartirResumenTransferenciasPedidosWhatsApp()">💬 Compartir por WhatsApp</button>
+                        <button class="btn btn-secondary" onclick="limpiarResumenTransferenciasPedidos()">🗑️ Empezar de nuevo</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Agrupa la libreta plana de transferenciasSesionPiso (una entrada por cada
+        // transferencia hecha) en totales por producto, igual que ya hacía
+        // renderizarResumenTransferenciasPiso() internamente.
+        function agruparPorNombre(lista) {
+            const porProducto = new Map();
+            lista.forEach(t => {
+                const actual = porProducto.get(t.nombre) || { nombre: t.nombre, unidad: t.unidad, cantidad: 0 };
+                actual.cantidad += t.cantidad;
+                porProducto.set(t.nombre, actual);
+            });
+            return Array.from(porProducto.values());
+        }
+
+        function limpiarResumenTransferenciasPedidos() {
+            if(!confirm('¿Borrar el resumen de esta sesión? (Esto no afecta el stock ya registrado, solo borra la lista.)')) return;
+            guardarTransferenciasSesionAlmacenPrincipal([]);
+            guardarTransferenciasSesion([]);
+            renderizarResumenTransferenciasPedidos();
+            renderizarResumenTransferenciasAlmacenPrincipal();
+            renderizarResumenTransferenciasPiso();
+        }
+
+        function compartirResumenTransferenciasPedidosWhatsApp() {
+            const sesionAlmacen = agruparTransferenciasAlmacenPrincipal(cargarTransferenciasSesionAlmacenPrincipal());
+            const alAlmacen = sesionAlmacen.filter(p => p.destino === 'almacen');
+            const alPisoDesdeAlmacen = sesionAlmacen.filter(p => p.destino === 'piso');
+            const alPisoDesdePuntoVenta = agruparPorNombre(cargarTransferenciasSesion());
+            const alPiso = [...alPisoDesdeAlmacen, ...alPisoDesdePuntoVenta].sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+            if(alAlmacen.length === 0 && alPiso.length === 0) return;
+
+            let texto = `📋 *Resumen de pedidos confirmados* (${new Date().toLocaleDateString('es-ES')})\n\n`;
+            if(alAlmacen.length > 0) {
+                texto += `🏬 Al Almacén Punto de Venta:\n`;
+                alAlmacen.forEach(p => { texto += `• ${p.nombre}: ${p.cantidad} ${p.unidad || ''}\n`; });
+                texto += '\n';
+            }
+            if(alPiso.length > 0) {
+                texto += `🧍 Al Piso de Venta:\n`;
+                alPiso.forEach(p => { texto += `• ${p.nombre}: ${p.cantidad} ${p.unidad || ''}\n`; });
+                texto += '\n';
+            }
+            const totalUnidades = alAlmacen.reduce((s, p) => s + p.cantidad, 0) + alPiso.reduce((s, p) => s + p.cantidad, 0);
+            texto += `Total: ${totalUnidades} unidad(es) en ${alAlmacen.length + alPiso.length} producto(s).`;
+
+            const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
+            window.location.href = url;
+        }
     </script>
 </body>
 </html>
