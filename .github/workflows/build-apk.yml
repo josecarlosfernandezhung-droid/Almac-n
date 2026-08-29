@@ -23,6 +23,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Restaurar debug.keystore fijo (para firmar igual en cada build y poder actualizar sin desinstalar)
+        run: |
+          mkdir -p ~/.android
+          echo "${{ secrets.DEBUG_KEYSTORE_BASE64 }}" | base64 -d > ~/.android/debug.keystore
+
       - name: Instalar dependencias
         run: npm install
 
@@ -34,6 +39,11 @@ jobs:
 
       - name: Agregar plataforma Android (se genera en cada build, no se guarda en el repo)
         run: npx cap add android
+
+      - name: Fijar versionCode/versionName (para que Android reconozca cada build como una actualización)
+        run: |
+          sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
 
       - name: Instalar plugin nativo FileSaver (guardado confiable de archivos en Descargas)
         run: |
