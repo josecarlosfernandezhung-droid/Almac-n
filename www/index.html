@@ -1557,23 +1557,67 @@
         .drawer-item {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
             width: 100%;
-            padding: 8px 16px;
+            padding: 11px 16px;
             border: none;
             background: none;
             text-align: left;
-            font-size: 13.5px;
+            font-size: 15.5px;
             font-weight: 600;
             color: #333;
             cursor: pointer;
         }
-        .drawer-item .drawer-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+        .drawer-item .drawer-icon { font-size: 20px; width: 24px; text-align: center; flex-shrink: 0; }
         .drawer-item:active { background: #f2f2fa; }
         .drawer-item.active {
             background: #eef0fb;
             color: #5b3fc9;
             box-shadow: inset 4px 0 0 #667eea;
+        }
+
+        /* Los botones del menú también llevan la clase .tab-btn (reciclada de la
+           antigua barra de pestañas, para no tocar la lógica de cambiarTab()), y esa
+           clase vieja trae flex-direction:column, tarjeta blanca con sombra, borde
+           redondeado y letra grande — propiedades que .drawer-item no pisa porque
+           nunca las declaró. Esta regla, al tener más especificidad (dos clases en
+           vez de una), gana siempre sin importar en qué orden queden en el archivo,
+           y deja el menú compacto: ícono al lado del nombre, en una sola fila. */
+        .drawer-lista .tab-btn {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 12px;
+            width: 100%;
+            min-height: auto;
+            padding: 11px 16px;
+            border-radius: 0;
+            background: none;
+            box-shadow: none;
+            text-align: left;
+            font-size: 15.5px;
+            line-height: 1.3;
+            white-space: normal;
+            transform: none;
+        }
+        .drawer-lista .tab-btn .tab-icon,
+        .drawer-lista .tab-btn .drawer-icon {
+            font-size: 20px;
+            width: 24px;
+            text-align: center;
+            flex-shrink: 0;
+            line-height: 1;
+        }
+        .drawer-lista .tab-btn.active {
+            background: #eef0fb;
+            color: #5b3fc9;
+            box-shadow: inset 4px 0 0 #667eea;
+            transform: none;
+        }
+        .drawer-lista .tab-btn:active {
+            background: #f2f2fa;
+            transform: none;
         }
     </style>
 </head>
@@ -2709,31 +2753,25 @@
         }
         ajustarOrientacionPorTab('dashboard'); // pestaña inicial: deja la rotación libre según el sistema
 
-        // Gira la pantalla a horizontal automáticamente en las pestañas con tablas
-        // anchas (Búsqueda, Reportes, Historial). En el resto de pestañas NO se fuerza
-        // vertical: se libera el bloqueo para que el teléfono gire libremente según el
-        // ajuste de rotación automática del propio sistema, como en cualquier otra app.
-        // Solo actúa dentro de la app compilada (APK); en el navegador no hace nada.
+        // Orientación siempre libre en todas las pestañas (Búsqueda, Reportes e
+        // Historial incluidos): ya no se fuerza landscape al entrar a esas pestañas,
+        // el teléfono gira según el propio ajuste de rotación automática del sistema,
+        // como en cualquier otra app. Solo actúa dentro de la app compilada (APK);
+        // en el navegador no hace nada.
         async function ajustarOrientacionPorTab(tabName) {
             if (!(window.Capacitor && window.Capacitor.isNativePlatform() && window.Capacitor.Plugins && window.Capacitor.Plugins.ScreenOrientation)) {
                 return;
             }
-            const tabsHorizontal = ['busqueda', 'reportes', 'historial'];
             try {
-                if (tabsHorizontal.includes(tabName)) {
-                    await window.Capacitor.Plugins.ScreenOrientation.lock({ orientation: 'landscape' });
-                } else {
-                    await window.Capacitor.Plugins.ScreenOrientation.unlock();
-                }
+                await window.Capacitor.Plugins.ScreenOrientation.unlock();
             } catch (e) {
                 console.warn('No se pudo ajustar la orientación de pantalla:', e);
             }
 
-            // Al pedir el giro por código (en vez de que el usuario mueva el teléfono),
-            // el WebView a veces tarda un instante en recalcular el ancho real de la
-            // pantalla, y el contenido se queda un momento con las medidas de la
-            // orientación anterior (se ve cortado o desbordado). Este forzado de
-            // "reflow" tras un pequeño margen corrige esa medida quedada vieja.
+            // Respaldo por si el WebView tarda un instante en recalcular el ancho
+            // real de la pantalla tras un cambio de orientación (se ve cortado o
+            // desbordado). Este forzado de "reflow" tras un pequeño margen corrige
+            // esa medida quedada vieja.
             setTimeout(() => {
                 document.body.style.display = 'none';
                 void document.body.offsetHeight; // fuerza al navegador a recalcular el layout ahora
