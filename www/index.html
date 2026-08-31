@@ -218,6 +218,40 @@
            que aquí se compacta lo que ocupa espacio vertical fijo (header, pestañas)
            para que quede más contenido útil visible sin tener que hacer tanto scroll.
            Se activa solo cuando el alto es realmente chico, para no afectar tablets. */
+        /* Aviso "gira el teléfono" que se muestra en Búsqueda, Reportes e Historial
+           mientras el teléfono está en vertical (la orientación ya no se fuerza,
+           así que este cartel es solo una sugerencia). Se oculta solo con CSS en
+           cuanto el usuario gira a horizontal, sin necesidad de JS. */
+        .avisoGirarPantalla {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            background: #fff8e1;
+            border-left: 4px solid #ffb300;
+            padding: 12px 15px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            color: #665500;
+        }
+        .avisoGirarPantalla .icono-girar {
+            font-size: 22px;
+            flex-shrink: 0;
+            animation: girarIcono 1.8s ease-in-out infinite;
+        }
+        @keyframes girarIcono {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(-90deg); }
+        }
+        body.mostrar-aviso-girar .avisoGirarPantalla {
+            display: flex;
+        }
+        @media (orientation: landscape) {
+            .avisoGirarPantalla {
+                display: none !important;
+            }
+        }
+
         @media (orientation: landscape) and (max-height: 500px) {
             .header {
                 padding: 8px 16px;
@@ -2143,6 +2177,8 @@
             <div id="historial" class="tab-content">
                 <h2>📜 Historial Editable - Elimina Movimientos Equivocados</h2>
 
+                <div class="avisoGirarPantalla"><span class="icono-girar">🔄</span> Gira el teléfono para verlo mejor</div>
+
                 <div style="background: #e3f2fd; padding: 15px; border-radius: 16px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
                     <strong>💡 Consejo:</strong> Aquí puedes ver TODOS tus movimientos. Si te equivocaste, busca el movimiento y haz clic en el botón <strong style="color: #f44336;">ELIMINAR</strong> en rojo para borrarlo y volver a hacerlo.
                 </div>
@@ -2295,6 +2331,8 @@
             <div id="busqueda" class="tab-content">
                 <h2>🔍 Búsqueda y Filtrado Avanzado</h2>
 
+                <div class="avisoGirarPantalla"><span class="icono-girar">🔄</span> Gira el teléfono para verlo mejor</div>
+
                 <div class="search-advanced">
                     <h3>Criterios de Búsqueda</h3>
 
@@ -2382,6 +2420,8 @@
             <!-- REPORTES -->
             <div id="reportes" class="tab-content">
                 <h2>📋 Reportes y Exportación</h2>
+
+                <div class="avisoGirarPantalla"><span class="icono-girar">🔄</span> Gira el teléfono para verlo mejor</div>
 
                 <div class="toggle-card" style="margin-top: 0; margin-bottom: 15px;">
                     <div class="toggle-card-text">
@@ -3209,12 +3249,13 @@
                 if(nombreEl) nombreEl.textContent = info.nombre;
             }
 
-            // En la app compilada (APK), estas 3 pestañas tienen tablas anchas con
-            // muchas columnas (fechas, cantidades, categorías, etc.) que se leen mejor
-            // en horizontal. Si el dispositivo lo soporta, se gira solo automáticamente
-            // al entrar y vuelve a vertical al salir. En el navegador normal esto no
-            // hace nada (la rotación la sigue controlando el usuario como siempre).
-            ajustarOrientacionPorTab(tabName);
+            // Estas 3 pestañas tienen tablas anchas con muchas columnas (fechas,
+            // cantidades, categorías, etc.) que se leen mejor en horizontal. Ya no se
+            // fuerza el giro (la rotación queda libre en toda la app), pero mientras
+            // el teléfono siga en vertical se muestra un cartel sugiriendo girarlo.
+            // El cartel se oculta solo (por CSS) en cuanto el usuario gira a horizontal.
+            const tabsConAvisoGirar = ['busqueda', 'reportes', 'historial'];
+            document.body.classList.toggle('mostrar-aviso-girar', tabsConAvisoGirar.includes(tabName));
 
             // Se recibe el botón pulsado como parámetro (más fiable en móvil que depender
             // del objeto global "event", que algunos navegadores no soportan igual).
