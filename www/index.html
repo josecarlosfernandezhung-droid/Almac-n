@@ -2054,6 +2054,14 @@
 
                     <input type="text" id="buscadorAlmacenExtra" placeholder="🔍 Buscar producto o SKU..." style="margin-top: 14px;" oninput="actualizarAlmacenExtraList()">
 
+                    <select id="filtroEstadoAlmacenExtra" onchange="actualizarAlmacenExtraList()" style="margin-top: 10px; width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px;">
+                        <option value="todos">Ver todos</option>
+                        <option value="ocultarAgotados">🚫 Ocultar agotados</option>
+                        <option value="agotados">🔴 Solo agotados (0)</option>
+                        <option value="bajos">🟠 Poca existencia (1-10)</option>
+                        <option value="conExistencia">🟢 Con existencia (&gt;10)</option>
+                    </select>
+
                     <div style="margin: 14px 0;">
                         <strong>Total de productos: <span id="totalAlmacenExtra">0</span></strong>
                     </div>
@@ -2225,6 +2233,31 @@
                     <div class="button-group" style="margin-top: 10px;">
                         <button type="button" class="btn btn-primary" onclick="guardarAlmacenExtraDesdeModal()">✅ Guardar</button>
                         <button type="button" class="btn btn-secondary" onclick="cerrarModalAgregarAlmacenExtra()">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL TRANSFERIR DESDE UN ALMACÉN EXTRA A CUALQUIER OTRO SITIO -->
+            <div id="modalTransferirAlmacenExtra" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                <div class="modal-box" style="max-width: 420px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <h2 style="margin: 0; font-size: 19px;">🔄 Transferir producto</h2>
+                        <button onclick="cerrarModalTransferirAlmacenExtra()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">✕</button>
+                    </div>
+                    <p id="transferirAlmExtraNombre" style="font-weight: bold; margin: 6px 0 2px;"></p>
+                    <p id="transferirAlmExtraStockInfo" style="color:#666; font-size: 13px; margin-bottom: 10px;"></p>
+                    <div class="form-group">
+                        <label for="transferirAlmExtraDestino">Destino</label>
+                        <select id="transferirAlmExtraDestino"></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="transferirAlmExtraCantidad">Cantidad a transferir</label>
+                        <input type="number" id="transferirAlmExtraCantidad" min="0" step="1" inputmode="numeric">
+                    </div>
+                    <div id="mensajeTransferirAlmExtra"></div>
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button type="button" class="btn btn-primary" onclick="confirmarTransferirAlmacenExtra()">✅ Transferir</button>
+                        <button type="button" class="btn btn-secondary" onclick="cerrarModalTransferirAlmacenExtra()">Cancelar</button>
                     </div>
                 </div>
             </div>
@@ -2757,6 +2790,12 @@
                 <h2>🌐 Stock en Vivo</h2>
                 <p style="color: #666; margin-bottom: 20px;">Conecta esta app a Firebase o a GitHub (o a las dos si quieres) para poder ver el stock actualizado desde cualquier navegador, en cualquier sitio con internet. La app sigue funcionando 100% offline aunque no actives ninguna.</p>
 
+                <div style="background:#f9f9f9; padding:16px; border-radius:16px; margin-bottom:20px;">
+                    <h3 style="margin-top:0;">👁️ Qué se ve en el visor</h3>
+                    <p style="color:#666; font-size:13.5px; margin-bottom:12px;">Apaga los que no quieras que salgan en "Stock en Vivo" (por ejemplo, un almacén interno). No borra nada aquí dentro, solo deja de subirse.</p>
+                    <div id="listaVisibilidadVisor"></div>
+                </div>
+
                 <div style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; border-bottom: 2px solid #e0e0e0;">
                     <button type="button" id="subtabFirebaseBtn" class="tab-btn active" onclick="cambiarSubtabSync('firebase')">🔥 Firebase</button>
                     <button type="button" id="subtabGithubBtn" class="tab-btn" onclick="cambiarSubtabSync('github')">🐙 GitHub</button>
@@ -3115,6 +3154,8 @@
 
             const buscador = document.getElementById('buscadorAlmacenExtra');
             if(buscador) buscador.value = '';
+            const selectEstado = document.getElementById('filtroEstadoAlmacenExtra');
+            if(selectEstado) selectEstado.value = 'todos';
 
             actualizarAlmacenExtraList();
         }
@@ -3130,9 +3171,18 @@
             if(!almacenExtraActualId) return;
             const lista = cargarProductosAlmacenExtra(almacenExtraActualId);
             const filtro = (document.getElementById('buscadorAlmacenExtra').value || '').trim().toLowerCase();
+            const estadoFiltro = document.getElementById('filtroEstadoAlmacenExtra') ? document.getElementById('filtroEstadoAlmacenExtra').value : 'todos';
             const filtrados = lista
                 .map((p, idx) => ({ ...p, idx }))
                 .filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.sku || '').toLowerCase().includes(filtro))
+                .filter(p => {
+                    const cant = parseFloat(p.cantidad) || 0;
+                    if(estadoFiltro === 'ocultarAgotados') return cant > 0;
+                    if(estadoFiltro === 'agotados') return cant <= 0;
+                    if(estadoFiltro === 'bajos') return cant > 0 && cant <= 10;
+                    if(estadoFiltro === 'conExistencia') return cant > 10;
+                    return true;
+                })
                 .sort((a, b) => a.nombre.localeCompare(b.nombre));
 
             const totalEl = document.getElementById('totalAlmacenExtra');
@@ -3162,6 +3212,7 @@
                     ${p.sku ? `<div style="font-size:12px; color:#888;">SKU: ${escaparHtmlSimple(p.sku)}</div>` : ''}
                     <div class="cmp-card-footer" style="display:flex; gap:8px; margin-top:8px;">
                         <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:11.5px;" onclick="abrirModalAgregarAlmacenExtra(${p.idx})">✏️ Editar</button>
+                        <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:11.5px;" onclick="abrirModalTransferirAlmacenExtra(${p.idx})">🔄 Transferir</button>
                         <button type="button" class="btn btn-danger" style="padding:6px 10px; font-size:11.5px;" onclick="eliminarProductoAlmacenExtra(${p.idx})">🗑️</button>
                     </div>
                 </div>
@@ -3554,6 +3605,8 @@
                 }
                 renderizarCatalogoPedidoNuevo();
                 renderizarResumenTransferenciasPedidos();
+            } else if(tabName === 'sincronizacion') {
+                renderizarVisibilidadVisor();
             }
         }
 
@@ -4321,6 +4374,107 @@
             });
         }
 
+        // ===== QUÉ SE VE EN EL VISOR (Stock en Vivo) =====
+        // Por cada "lugar" (Punto de Venta, Almacén Principal, Piso de Venta, o cada
+        // almacén extra) José puede apagarlo para que no se suba/muestre en el visor,
+        // sin borrar ni tocar los datos reales de ese lugar dentro de esta app. Por
+        // defecto (si nunca se tocó el interruptor) todo se considera visible.
+        function cargarVisibilidadVisor() {
+            try { return JSON.parse(localStorage.getItem('visorVisibilidad')) || {}; }
+            catch(e) { return {}; }
+        }
+
+        function guardarVisibilidadVisor(conf) {
+            localStorage.setItem('visorVisibilidad', JSON.stringify(conf));
+        }
+
+        function esVisibleEnVisor(id) {
+            const conf = cargarVisibilidadVisor();
+            return conf[id] !== false;
+        }
+
+        function alternarVisibilidadVisor(id) {
+            const conf = cargarVisibilidadVisor();
+            conf[id] = !esVisibleEnVisor(id);
+            guardarVisibilidadVisor(conf);
+            renderizarVisibilidadVisor();
+            // Empuja el cambio de una vez si ya hay sync activo, para no tener que
+            // esperar al próximo movimiento para que el visor lo refleje.
+            if(typeof firebaseStockRef !== 'undefined' && firebaseStockRef) sincronizarStockFirebase();
+            if(typeof sincronizarStockGitHub === 'function') sincronizarStockGitHub();
+        }
+
+        // Nombres personalizados para el visor: por defecto cada lugar aparece con su
+        // nombre de siempre (Punto de Venta, Almacén Principal, Piso de Venta, o el
+        // nombre que le pusiste al crear el almacén extra), pero José puede ponerle
+        // otro nombre SOLO para cómo se ve en "Stock en Vivo" — no cambia nada aquí
+        // dentro de la app (por ejemplo, para no confundir "Piso de Venta" con "Punto
+        // de Venta" en el visor).
+        function cargarNombresVisor() {
+            try { return JSON.parse(localStorage.getItem('visorNombres')) || {}; }
+            catch(e) { return {}; }
+        }
+
+        function guardarNombresVisor(conf) {
+            localStorage.setItem('visorNombres', JSON.stringify(conf));
+        }
+
+        function nombreVisorDe(id, nombrePorDefecto) {
+            const conf = cargarNombresVisor();
+            return (conf[id] && conf[id].trim()) ? conf[id].trim() : nombrePorDefecto;
+        }
+
+        function renombrarFuenteVisor(id, nombreActual) {
+            const nuevo = prompt('¿Cómo quieres que se llame en el visor?', nombreActual);
+            if(nuevo === null) return; // canceló
+            const conf = cargarNombresVisor();
+            if(!nuevo.trim() || nuevo.trim() === nombreActual) {
+                delete conf[id]; // vacío o igual al de siempre = quitar el apodo
+            } else {
+                conf[id] = nuevo.trim();
+            }
+            guardarNombresVisor(conf);
+            renderizarVisibilidadVisor();
+            if(typeof firebaseStockRef !== 'undefined' && firebaseStockRef) sincronizarStockFirebase();
+            if(typeof sincronizarStockGitHub === 'function') sincronizarStockGitHub();
+        }
+
+        function renderizarVisibilidadVisor() {
+            const cont = document.getElementById('listaVisibilidadVisor');
+            if(!cont) return;
+
+            const fuentes = [];
+            if(cargarProductos().length > 0) fuentes.push({ id: 'productos', icono: '🏬', nombre: 'Punto de Venta' });
+            if(cargarAlmacenPrincipal().length > 0) fuentes.push({ id: 'almacenPrincipal', icono: '🏭', nombre: 'Almacén Principal' });
+            if(obtenerPisoVentaParaSnapshot().length > 0) fuentes.push({ id: 'pisoVenta', icono: '🧍', nombre: 'Piso de Venta' });
+            cargarAlmacenesExtra().forEach(a => {
+                if(cargarProductosAlmacenExtra(a.id).length > 0) {
+                    fuentes.push({ id: 'extra_' + a.id, icono: a.icono || '📦', nombre: a.nombre });
+                }
+            });
+
+            if(fuentes.length === 0) {
+                cont.innerHTML = '<p style="color:#999; font-size:13px;">Todavía no hay ningún almacén con productos cargados.</p>';
+                return;
+            }
+
+            cont.innerHTML = fuentes.map(f => {
+                const visible = esVisibleEnVisor(f.id);
+                const nombreMostrado = nombreVisorDe(f.id, f.nombre);
+                return `
+                    <div class="toggle-card">
+                        <div class="toggle-card-text">
+                            <div class="toggle-card-title">${f.icono} ${escaparHtmlSimple(nombreMostrado)}</div>
+                        </div>
+                        <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:11.5px;" onclick="renombrarFuenteVisor('${f.id}', '${escaparHtmlSimple(nombreMostrado).replace(/'/g, "\\'")}')">✏️</button>
+                        <button type="button" class="toggle-switch ${visible ? 'on' : ''}" onclick="alternarVisibilidadVisor('${f.id}')" role="switch" aria-checked="${visible}">
+                            <span class="toggle-switch-thumb"></span>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
         // Convierte la última comparación "Piso vs Almacén" (importada por Excel en esa
         // pestaña) al formato {nombre, sku, cantidad} para subirla junto al resto del
         // stock, así el visor también puede mostrar cuánto hay en el Piso de Venta. Si
@@ -4337,17 +4491,21 @@
 
         // Junta todos los almacenes adicionales que José haya creado, con sus productos,
         // para subirlos también al mismo JSON de stock (así aparecen en el visor).
+        // Respeta el interruptor de "Qué se ve en el visor": si un almacén está apagado,
+        // no se incluye aquí.
         function obtenerAlmacenesExtraParaSnapshot() {
-            return cargarAlmacenesExtra().map(a => ({
-                id: a.id,
-                nombre: a.nombre,
-                icono: a.icono || '📦',
-                productos: cargarProductosAlmacenExtra(a.id).map(p => ({
-                    nombre: p.nombre,
-                    sku: p.sku || '',
-                    cantidad: p.cantidad
-                }))
-            }));
+            return cargarAlmacenesExtra()
+                .filter(a => esVisibleEnVisor('extra_' + a.id))
+                .map(a => ({
+                    id: a.id,
+                    nombre: a.nombre,
+                    icono: a.icono || '📦',
+                    productos: cargarProductosAlmacenExtra(a.id).map(p => ({
+                        nombre: p.nombre,
+                        sku: p.sku || '',
+                        cantidad: p.cantidad
+                    }))
+                }));
         }
 
         // Envía a Firebase un resumen del stock actual (no el historial completo). Se llama automáticamente tras cada cambio.
@@ -4356,20 +4514,21 @@
             const catalogo = cargarProductos();
             const snapshot = {
                 actualizado: new Date().toISOString(),
-                productos: catalogo.map(p => ({
+                productos: esVisibleEnVisor('productos') ? catalogo.map(p => ({
                     nombre: p.nombre,
                     sku: p.sku,
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
                     stock: calcularStockProducto(p.nombre)
-                })),
-                almacenPrincipal: cargarAlmacenPrincipal().map(p => ({
+                })) : [],
+                almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
                     nombre: p.nombre,
                     sku: p.sku || '',
                     cantidad: p.cantidad
-                })),
-                pisoVenta: obtenerPisoVentaParaSnapshot(),
-                almacenesExtra: obtenerAlmacenesExtraParaSnapshot()
+                })) : [],
+                pisoVenta: esVisibleEnVisor('pisoVenta') ? obtenerPisoVentaParaSnapshot() : [],
+                almacenesExtra: obtenerAlmacenesExtraParaSnapshot(),
+                etiquetas: cargarNombresVisor()
             };
             firebaseStockRef.set(snapshot).catch(e => console.warn('No se pudo sincronizar con Firebase (revisa tu conexión):', e.message));
         }
@@ -4538,23 +4697,24 @@
             const catalogo = cargarProductos();
             const snapshot = {
                 actualizado: new Date().toISOString(),
-                productos: catalogo.map(p => ({
+                productos: esVisibleEnVisor('productos') ? catalogo.map(p => ({
                     nombre: p.nombre,
                     sku: p.sku,
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
                     stock: calcularStockProducto(p.nombre)
-                })),
-                almacenPrincipal: cargarAlmacenPrincipal().map(p => ({
+                })) : [],
+                almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
                     nombre: p.nombre,
                     sku: p.sku || '',
                     cantidad: p.cantidad
-                })),
-                pisoVenta: obtenerPisoVentaParaSnapshot(),
-                almacenesExtra: obtenerAlmacenesExtraParaSnapshot()
+                })) : [],
+                pisoVenta: esVisibleEnVisor('pisoVenta') ? obtenerPisoVentaParaSnapshot() : [],
+                almacenesExtra: obtenerAlmacenesExtraParaSnapshot(),
+                etiquetas: cargarNombresVisor()
             };
 
-            const huellaActual = JSON.stringify(snapshot.productos) + '|' + JSON.stringify(snapshot.almacenPrincipal) + '|' + JSON.stringify(snapshot.pisoVenta) + '|' + JSON.stringify(snapshot.almacenesExtra);
+            const huellaActual = JSON.stringify(snapshot.productos) + '|' + JSON.stringify(snapshot.almacenPrincipal) + '|' + JSON.stringify(snapshot.pisoVenta) + '|' + JSON.stringify(snapshot.almacenesExtra) + '|' + JSON.stringify(snapshot.etiquetas);
             if(huellaActual === ultimoSnapshotGitHub) return; // no cambió nada, no hace falta subir
 
             sincronizandoGitHub = true;
@@ -7081,6 +7241,149 @@
             movimientos.push(movimiento);
             guardarMovimientosYSync(movimientos);
             return movimiento;
+        }
+
+        // Igual que registrarMovimientoTransferencia, pero con el origen a medida (para
+        // usarla desde cualquier almacén extra, no solo desde el Almacén Principal).
+        function registrarMovimientoTransferenciaGenerico(origenLabel, item, cantidad, destinoLabel, productoCatalogo) {
+            const movimiento = {
+                id: Date.now(),
+                tipo: 'transferencia',
+                fecha: new Date().toISOString().split('T')[0],
+                producto: productoCatalogo ? productoCatalogo.nombre : item.nombre,
+                cantidad: cantidad,
+                unidad: productoCatalogo ? productoCatalogo.unidad : (item.unidad || ''),
+                referencia: productoCatalogo ? productoCatalogo.sku : (item.sku || ''),
+                categoria: productoCatalogo ? (productoCatalogo.categoria || 'Sin categoría') : 'Sin categoría',
+                origen: origenLabel,
+                destino: destinoLabel,
+                observaciones: `Transferencia: ${origenLabel} → ${destinoLabel}`,
+                registradoPor: localStorage.getItem('ultimoRegistradoPor') || ''
+            };
+            let movimientos = JSON.parse(localStorage.getItem('movimientos')) || [];
+            movimientos.push(movimiento);
+            guardarMovimientosYSync(movimientos);
+            return movimiento;
+        }
+
+        // ===== TRANSFERIR DESDE UN ALMACÉN EXTRA A CUALQUIER OTRO SITIO =====
+        // (Almacén Principal, Punto de Venta, o cualquier OTRO almacén extra que José
+        // haya creado). Resta del almacén extra actual y suma en el destino elegido.
+        let transferirAlmExtraIdxActual = null;
+
+        function abrirModalTransferirAlmacenExtra(idx) {
+            if(!almacenExtraActualId) return;
+            const lista = cargarProductosAlmacenExtra(almacenExtraActualId);
+            const p = lista[idx];
+            if(!p) return;
+            transferirAlmExtraIdxActual = idx;
+
+            document.getElementById('transferirAlmExtraNombre').textContent = p.nombre;
+            document.getElementById('transferirAlmExtraStockInfo').textContent = `Hay ${p.cantidad} aquí ahora mismo.`;
+            document.getElementById('transferirAlmExtraCantidad').value = '';
+            document.getElementById('mensajeTransferirAlmExtra').innerHTML = '';
+
+            const select = document.getElementById('transferirAlmExtraDestino');
+            const opciones = [
+                { value: 'almacenPrincipal', label: '🏭 Almacén Principal' },
+                { value: 'productos', label: '🏬 Punto de Venta' }
+            ];
+            cargarAlmacenesExtra().forEach(a => {
+                if(a.id !== almacenExtraActualId) opciones.push({ value: 'extra_' + a.id, label: `${a.icono || '📦'} ${a.nombre}` });
+            });
+            select.innerHTML = opciones.map(o => `<option value="${o.value}">${escaparHtmlSimple(o.label)}</option>`).join('');
+
+            document.getElementById('modalTransferirAlmacenExtra').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function cerrarModalTransferirAlmacenExtra() {
+            document.getElementById('modalTransferirAlmacenExtra').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            transferirAlmExtraIdxActual = null;
+        }
+
+        function confirmarTransferirAlmacenExtra() {
+            if(!almacenExtraActualId || transferirAlmExtraIdxActual === null) return;
+            const msg = document.getElementById('mensajeTransferirAlmExtra');
+            let lista = cargarProductosAlmacenExtra(almacenExtraActualId);
+            const p = lista[transferirAlmExtraIdxActual];
+            if(!p) { cerrarModalTransferirAlmacenExtra(); return; }
+
+            const cantidad = parseFloat(document.getElementById('transferirAlmExtraCantidad').value);
+            if(!cantidad || cantidad <= 0) {
+                msg.innerHTML = '<div class="alert alert-error">Indica una cantidad válida.</div>';
+                return;
+            }
+            const disponible = parseFloat(p.cantidad) || 0;
+            if(cantidad > disponible) {
+                msg.innerHTML = `<div class="alert alert-error">Solo hay ${disponible} aquí. No puedes transferir ${cantidad}.</div>`;
+                return;
+            }
+
+            const destino = document.getElementById('transferirAlmExtraDestino').value;
+            const almOrigen = cargarAlmacenesExtra().find(a => a.id === almacenExtraActualId);
+            const origenLabel = almOrigen ? `${almOrigen.icono || '📦'} ${almOrigen.nombre}` : 'Almacén extra';
+            let destinoLabelFinal = '';
+
+            if(destino === 'almacenPrincipal') {
+                let almP = cargarAlmacenPrincipal();
+                let existente = almP.find(x =>
+                    (p.sku && x.sku && x.sku.trim().toUpperCase() === p.sku.trim().toUpperCase()) ||
+                    x.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase()
+                );
+                if(existente) existente.cantidad = (parseFloat(existente.cantidad) || 0) + cantidad;
+                else almP.push({ nombre: p.nombre, sku: p.sku || '', cantidad });
+                guardarAlmacenPrincipal(almP);
+                destinoLabelFinal = 'Almacén Principal';
+                registrarMovimientoTransferenciaGenerico(origenLabel, p, cantidad, destinoLabelFinal);
+                actualizarAlmacenPrincipalList();
+            } else if(destino === 'productos') {
+                let productos = cargarProductos();
+                let producto = buscarProductoPorNombre(p.nombre);
+                if(!producto && p.sku) {
+                    producto = productos.find(x => (x.sku || '').trim().toUpperCase() === p.sku.trim().toUpperCase());
+                }
+                if(!producto) {
+                    producto = {
+                        nombre: p.nombre,
+                        sku: p.sku || generarSkuUnico('Sin categoría', new Set(productos.filter(x => x.sku).map(x => x.sku.trim().toUpperCase()))),
+                        categoria: 'Sin categoría', unidad: 'piezas',
+                        stockInicial: 0, stockMinimo: 10, fechaCreacion: new Date().toISOString()
+                    };
+                    productos.push(producto);
+                    guardarProductosCatalogo(productos);
+                }
+                destinoLabelFinal = 'Punto de Venta';
+                registrarMovimientoTransferenciaGenerico(origenLabel, p, cantidad, destinoLabelFinal, producto);
+                actualizarProductosList();
+                actualizarListadoProductos();
+            } else if(destino.startsWith('extra_')) {
+                const idDestino = destino.slice(6);
+                let listaDestino = cargarProductosAlmacenExtra(idDestino);
+                let existente = listaDestino.find(x =>
+                    (p.sku && x.sku && x.sku.trim().toUpperCase() === p.sku.trim().toUpperCase()) ||
+                    x.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase()
+                );
+                if(existente) existente.cantidad = (parseFloat(existente.cantidad) || 0) + cantidad;
+                else listaDestino.push({ nombre: p.nombre, sku: p.sku || '', cantidad });
+                guardarProductosAlmacenExtra(idDestino, listaDestino);
+                const almDestino = cargarAlmacenesExtra().find(a => a.id === idDestino);
+                destinoLabelFinal = almDestino ? almDestino.nombre : 'Otro almacén';
+                registrarMovimientoTransferenciaGenerico(origenLabel, p, cantidad, destinoLabelFinal);
+            } else {
+                return;
+            }
+
+            p.cantidad = disponible - cantidad;
+            guardarProductosAlmacenExtra(almacenExtraActualId, lista);
+
+            cerrarModalTransferirAlmacenExtra();
+            actualizarAlmacenExtraList();
+            renderizarListaAlmacenesExtra();
+            actualizarDashboard();
+            renderizarVisibilidadVisor();
+            mostrarMensaje(`✅ Se transfirieron ${cantidad} de "${p.nombre}" a ${destinoLabelFinal}.`, 'success');
         }
 
         // ===== RESUMEN DE TRANSFERENCIAS ALMACÉN PRINCIPAL -> PUNTO DE VENTA (de esta sesión) =====
