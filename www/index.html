@@ -2048,6 +2048,7 @@
 
                     <div class="button-group">
                         <button class="btn btn-primary" onclick="abrirImportadorExcel('almacenExtra')">📥 Actualizar por Excel</button>
+                        <button class="btn btn-secondary" onclick="abrirModalAgregarAlmacenExtra()">➕ Agregar producto</button>
                         <button class="btn btn-danger" onclick="eliminarAlmacenExtraActual()">🗑️ Eliminar este almacén</button>
                     </div>
 
@@ -2195,6 +2196,35 @@
                     <div class="button-group" style="margin-top: 10px;">
                         <button type="button" class="btn btn-primary" onclick="guardarAlmacenPrincipalDesdeModal()">✅ Guardar</button>
                         <button type="button" class="btn btn-secondary" onclick="cerrarModalAgregarAlmacenPrincipal()">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MODAL AGREGAR/EDITAR PRODUCTO EN UN ALMACÉN EXTRA (igual que el del Almacén
+                 Principal, pero guarda en el almacén extra que esté abierto en ese momento). -->
+            <div id="modalAgregarAlmacenExtra" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto;">
+                <div class="modal-box" style="max-width: 420px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <h2 id="tituloModalAlmacenExtra" style="margin: 0; font-size: 19px;">➕ Agregar producto</h2>
+                        <button onclick="cerrarModalAgregarAlmacenExtra()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: #666;">✕</button>
+                    </div>
+                    <input type="hidden" id="almExtraIdxOriginal" value="">
+                    <div class="form-group">
+                        <label for="almExtraNombre">Nombre del producto *</label>
+                        <input type="text" id="almExtraNombre">
+                    </div>
+                    <div class="form-group">
+                        <label for="almExtraSku">SKU / Código</label>
+                        <input type="text" id="almExtraSku">
+                    </div>
+                    <div class="form-group">
+                        <label for="almExtraCantidad">Cantidad</label>
+                        <input type="number" id="almExtraCantidad" min="0" step="1" inputmode="numeric" value="0">
+                    </div>
+                    <div id="mensajeModalAlmacenExtra"></div>
+                    <div class="button-group" style="margin-top: 10px;">
+                        <button type="button" class="btn btn-primary" onclick="guardarAlmacenExtraDesdeModal()">✅ Guardar</button>
+                        <button type="button" class="btn btn-secondary" onclick="cerrarModalAgregarAlmacenExtra()">Cancelar</button>
                     </div>
                 </div>
             </div>
@@ -3130,6 +3160,10 @@
                         <div class="cmp-card-estado" style="font-weight:bold; ${(parseFloat(p.cantidad) || 0) <= 10 ? 'color:#c0392b;' : 'color:#4caf50;'}">${p.cantidad}</div>
                     </div>
                     ${p.sku ? `<div style="font-size:12px; color:#888;">SKU: ${escaparHtmlSimple(p.sku)}</div>` : ''}
+                    <div class="cmp-card-footer" style="display:flex; gap:8px; margin-top:8px;">
+                        <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:11.5px;" onclick="abrirModalAgregarAlmacenExtra(${p.idx})">✏️ Editar</button>
+                        <button type="button" class="btn btn-danger" style="padding:6px 10px; font-size:11.5px;" onclick="eliminarProductoAlmacenExtra(${p.idx})">🗑️</button>
+                    </div>
                 </div>
             `).join('');
         }
@@ -6681,6 +6715,81 @@
             actualizarAlmacenPrincipalList();
             actualizarDashboard();
             renderizarCatalogoPedidoNuevo();
+        }
+
+        // ===== AGREGAR/EDITAR/ELIMINAR PRODUCTO A MANO EN UN ALMACÉN EXTRA =====
+        // Igual que en el Almacén Principal, pero opera sobre el almacén extra que esté
+        // abierto en ese momento (almacenExtraActualId).
+        function abrirModalAgregarAlmacenExtra(idx) {
+            if(!almacenExtraActualId) return;
+            document.getElementById('mensajeModalAlmacenExtra').innerHTML = '';
+            document.getElementById('almExtraIdxOriginal').value = (idx === undefined) ? '' : idx;
+            if(idx === undefined) {
+                document.getElementById('tituloModalAlmacenExtra').textContent = '➕ Agregar producto';
+                document.getElementById('almExtraNombre').value = '';
+                document.getElementById('almExtraSku').value = '';
+                document.getElementById('almExtraCantidad').value = 0;
+            } else {
+                const lista = cargarProductosAlmacenExtra(almacenExtraActualId);
+                const p = lista[idx];
+                if(!p) return;
+                document.getElementById('tituloModalAlmacenExtra').textContent = '✏️ Editar producto';
+                document.getElementById('almExtraNombre').value = p.nombre;
+                document.getElementById('almExtraSku').value = p.sku || '';
+                document.getElementById('almExtraCantidad').value = p.cantidad;
+            }
+            document.getElementById('modalAgregarAlmacenExtra').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function cerrarModalAgregarAlmacenExtra() {
+            document.getElementById('modalAgregarAlmacenExtra').style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        function guardarAlmacenExtraDesdeModal() {
+            if(!almacenExtraActualId) return;
+            const msg = document.getElementById('mensajeModalAlmacenExtra');
+            const nombre = document.getElementById('almExtraNombre').value.trim();
+            const sku = document.getElementById('almExtraSku').value.trim();
+            const cantidad = parseFloat(document.getElementById('almExtraCantidad').value) || 0;
+            const idxOriginalRaw = document.getElementById('almExtraIdxOriginal').value;
+            const idxOriginal = idxOriginalRaw === '' ? null : parseInt(idxOriginalRaw);
+
+            if(!nombre) {
+                msg.innerHTML = '<div class="alert alert-error">Falta el nombre del producto.</div>';
+                return;
+            }
+
+            let lista = cargarProductosAlmacenExtra(almacenExtraActualId);
+            const yaExiste = lista.findIndex((p, i) => i !== idxOriginal && (
+                p.nombre.trim().toLowerCase() === nombre.toLowerCase() ||
+                (sku && p.sku && p.sku.trim().toUpperCase() === sku.toUpperCase())
+            ));
+            if(yaExiste !== -1) {
+                msg.innerHTML = '<div class="alert alert-error">Ya hay otro producto en este almacén con ese nombre o SKU.</div>';
+                return;
+            }
+
+            if(idxOriginal === null) {
+                lista.push({ nombre, sku, cantidad });
+            } else {
+                lista[idxOriginal] = { nombre, sku, cantidad };
+            }
+            guardarProductosAlmacenExtra(almacenExtraActualId, lista);
+            cerrarModalAgregarAlmacenExtra();
+            actualizarAlmacenExtraList();
+            renderizarListaAlmacenesExtra();
+        }
+
+        function eliminarProductoAlmacenExtra(idx) {
+            if(!almacenExtraActualId) return;
+            if(!confirm('¿Eliminar este producto de este almacén?')) return;
+            let lista = cargarProductosAlmacenExtra(almacenExtraActualId);
+            lista.splice(idx, 1);
+            guardarProductosAlmacenExtra(almacenExtraActualId, lista);
+            actualizarAlmacenExtraList();
+            renderizarListaAlmacenesExtra();
         }
 
         // Actualiza cantidades del Almacén Principal desde un Excel: si el producto ya
