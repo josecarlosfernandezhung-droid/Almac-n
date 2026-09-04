@@ -2367,11 +2367,13 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="tipo">Tipo de Movimiento *</label>
-                            <select id="tipo" required>
+                            <select id="tipo" required onchange="actualizarAyudaTipoMovimiento()">
                                 <option value="">Selecciona...</option>
                                 <option value="entrada">📥 Entrada</option>
                                 <option value="salida">📤 Salida</option>
+                                <option value="transferir_piso">🔀 Transferir a Piso de Venta</option>
                             </select>
+                            <div id="ayudaTipoMovimiento" style="font-size: 12px; margin-top: 4px; color: #666;"></div>
                         </div>
                         <div class="form-group">
                             <label for="fecha">Fecha *</label>
@@ -2382,12 +2384,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="producto">Producto *</label>
-                            <input type="text" id="producto" list="listaProductosRegistro" required
+                            <input type="text" id="producto" required
                                    placeholder="🔍 Escribe para buscar un producto..." autocomplete="off"
                                    oninput="autocompletarCamposProducto(); mostrarSugerenciasProducto(this)"
                                    onchange="autocompletarCamposProducto()"
                                    onfocus="mostrarSugerenciasProducto(this)" onblur="ocultarSugerenciasProducto()">
-                            <datalist id="listaProductosRegistro"></datalist>
                             <div id="infoStockProducto" style="font-size: 12px; margin-top: 4px; color: #666;"></div>
                         </div>
                         <div class="form-group">
@@ -2447,6 +2448,12 @@
                 <div id="mensaje" style="margin-top: 20px;"></div>
 
                 <button type="button" class="btn btn-secondary" style="margin-top: 10px;" onclick="deshacerUltimoMovimiento()">↩️ Deshacer el último movimiento registrado</button>
+
+                <button type="button" class="btn btn-secondary" id="btnToggleHistorialHoyRegistro" onclick="alternarHistorialHoyRegistro()" style="width:100%; display:flex; justify-content:space-between; align-items:center; text-align:left; margin-top: 24px;">
+                    <span id="tituloHistorialHoyRegistro">📅 Hoy</span>
+                    <span id="iconoHistorialHoyRegistro">▾</span>
+                </button>
+                <div id="historialHoyRegistro" style="display:none; margin-top: 8px;"></div>
             </div>
 
             <!-- BÚSQUEDA AVANZADA -->
@@ -3003,11 +3010,63 @@
             setTimeout(() => bar.classList.remove('activa'), 150);
         }
 
+        // ===== HISTORIAL DE HOY (pestaña Registrar) =====
+        // Lista corta, en la propia pestaña Registrar, de lo que ya se movió hoy
+        // (entradas, salidas y transferencias a Piso de Venta), para que José pueda ver
+        // de un vistazo lo que lleva registrado sin tener que ir a la pestaña Historial.
+        // Va colapsada por defecto (igual que el submenú de Pedidos) para no ocupar
+        // espacio del formulario; el título del botón muestra cuántos movimientos hay.
+        function actualizarHistorialHoyRegistro() {
+            const cont = document.getElementById('historialHoyRegistro');
+            const titulo = document.getElementById('tituloHistorialHoyRegistro');
+            if(!cont) return;
+            const hoy = new Date().toISOString().split('T')[0];
+            const deHoy = cargarDatos()
+                .filter(m => m.fecha === hoy)
+                .sort((a, b) => b.id - a.id);
+
+            if(titulo) titulo.textContent = deHoy.length > 0 ? `📅 Hoy (${deHoy.length} movimiento${deHoy.length === 1 ? '' : 's'})` : '📅 Hoy';
+
+            if(deHoy.length === 0) {
+                cont.innerHTML = '<p style="text-align:center; color:#999; padding: 10px 0; font-size:13px;">Todavía no hay movimientos registrados hoy.</p>';
+                return;
+            }
+
+            cont.innerHTML = deHoy.map(m => {
+                const esTransferenciaAPiso = m.tipo === 'salida' && m.observaciones === 'Transferencia a piso de venta';
+                let badge, color;
+                if(esTransferenciaAPiso) { badge = '🔀 Transf. a Piso'; color = '#1976d2'; }
+                else if(m.tipo === 'transferencia') { badge = '🔀 Transferencia'; color = '#1976d2'; }
+                else if(m.tipo === 'entrada') { badge = '📥 Entrada'; color = '#4caf50'; }
+                else { badge = '📤 Salida'; color = '#f44336'; }
+                const signo = (m.tipo === 'salida' || (m.tipo === 'transferencia' && m.origen === 'Almacén Punto de Venta')) ? '-' : '+';
+
+                return `
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid #eee; font-size:13px;">
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escaparHtmlSimple(m.producto)}</div>
+                            <div style="font-size:11px; color:${color};">${badge}${m.tipo === 'transferencia' ? ` · ${escaparHtmlSimple(m.origen || '')} → ${escaparHtmlSimple(m.destino || '')}` : ''}</div>
+                        </div>
+                        <div style="font-weight:700; color:${color}; white-space:nowrap;">${signo}${m.cantidad} ${escaparHtmlSimple(m.unidad || '')}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function alternarHistorialHoyRegistro() {
+            historialHoyRegistroAbierto = !historialHoyRegistroAbierto;
+            const cont = document.getElementById('historialHoyRegistro');
+            const icono = document.getElementById('iconoHistorialHoyRegistro');
+            if(cont) cont.style.display = historialHoyRegistroAbierto ? 'block' : 'none';
+            if(icono) icono.textContent = historialHoyRegistroAbierto ? '▴' : '▾';
+        }
+
         // INICIALIZACIÓN
         document.addEventListener('DOMContentLoaded', function() {
             crearBarraSugerenciasProducto();
             document.getElementById('fecha').valueAsDate = new Date();
             document.getElementById('registradoPor').value = localStorage.getItem('ultimoRegistradoPor') || '';
+            actualizarHistorialHoyRegistro();
 
             // Mostrar la app de inmediato, sin esperar a Firebase para nada
             actualizarDashboard();
@@ -3248,7 +3307,11 @@
         function deltaStockMovimiento(m) {
             if(m.tipo === 'entrada') return m.cantidad;
             if(m.tipo === 'salida') return -m.cantidad;
-            if(m.tipo === 'transferencia') return m.destino === 'Almacén Punto de Venta' ? m.cantidad : 0;
+            if(m.tipo === 'transferencia') {
+                if(m.destino === 'Almacén Punto de Venta') return m.cantidad;
+                if(m.origen === 'Almacén Punto de Venta') return -m.cantidad;
+                return 0;
+            }
             return 0;
         }
 
@@ -3574,6 +3637,7 @@
                 }, 100);
             } else if(tabName === 'registro') {
                 actualizarProductosList();
+                actualizarHistorialHoyRegistro();
             } else if(tabName === 'reportes') {
                 mostrarReporte('inventarioActual');
                 actualizarBotonSoloDisponiblesReportes();
@@ -3615,7 +3679,13 @@
             e.preventDefault();
 
             const nombreProducto = document.getElementById('producto').value;
-            const tipo = document.getElementById('tipo').value;
+            const tipoSeleccionado = document.getElementById('tipo').value;
+            // "Transferir a Piso de Venta" se guarda como una salida especial (mismo
+            // patrón que ya usa el resto de la app: tipo 'salida' + observaciones fija
+            // 'Transferencia a piso de venta'), así el deshacer y el resto de pantallas
+            // que ya reconocen ese patrón funcionan igual sin tocar nada más.
+            const esTransferenciaAPiso = tipoSeleccionado === 'transferir_piso';
+            const tipo = esTransferenciaAPiso ? 'salida' : tipoSeleccionado;
             const cantidad = parseInt(document.getElementById('cantidad').value);
 
             // Validación 1: el producto debe existir en el catálogo (no se permite crear productos "al vuelo")
@@ -3625,7 +3695,8 @@
                 return;
             }
 
-            // Validación 2: para salidas, debe haber existencia suficiente
+            // Validación 2: para salidas (incluida la transferencia a piso, que también
+            // resta del Almacén Punto de Venta), debe haber existencia suficiente
             if(tipo === 'salida') {
                 const stockDisponible = calcularStockProducto(nombreProducto);
                 if(stockDisponible <= 0) {
@@ -3649,7 +3720,7 @@
                 unidad: producto.unidad,
                 referencia: producto.sku,
                 categoria: producto.categoria || 'Sin categoría',
-                observaciones: document.getElementById('observaciones').value,
+                observaciones: esTransferenciaAPiso ? 'Transferencia a piso de venta' : document.getElementById('observaciones').value,
                 registradoPor: registradoPor
             };
 
@@ -3657,25 +3728,56 @@
             movimientos.push(movimiento);
             guardarMovimientosYSync(movimientos);
 
+            // Si hay datos de comparación de Piso de Venta cargados en esta sesión
+            // (Excel importado en "Pedidos"), se reflejan también ahí al instante, igual
+            // que hace el botón "🔄 Transferir a piso" de esa pantalla.
+            if(esTransferenciaAPiso && typeof resultadoComparacionPiso !== 'undefined' && resultadoComparacionPiso && resultadoComparacionPiso.length > 0) {
+                const r = resultadoComparacionPiso.find(x =>
+                    (producto.sku && (x.sku || '').trim().toUpperCase() === producto.sku.trim().toUpperCase()) ||
+                    x.nombre.trim().toLowerCase() === producto.nombre.trim().toLowerCase()
+                );
+                if(r) {
+                    r.almacen -= cantidad;
+                    r.piso += cantidad;
+                    const minimo = (producto.stockMinimo === undefined || producto.stockMinimo === null) ? 10 : producto.stockMinimo;
+                    if(r.piso <= 0) r.estado = 'agotado';
+                    else if(r.piso <= minimo) r.estado = 'bajo';
+                    else r.estado = 'ok';
+                    guardarResultadoComparacionPiso();
+                }
+            }
+
             // Recordar el nombre para la próxima vez, para no tener que escribirlo cada vez
             if(registradoPor) localStorage.setItem('ultimoRegistradoPor', registradoPor);
 
-            mostrarMensaje('✅ Movimiento registrado correctamente', 'success');
+            mostrarMensaje(esTransferenciaAPiso ? '✅ Se transfirió correctamente al Piso de Venta' : '✅ Movimiento registrado correctamente', 'success');
 
             // Al resetear el formulario, se mantiene el mismo "Tipo de Movimiento" (entrada/salida)
             // para poder registrar varias entradas o salidas seguidas sin tener que volver a
             // seleccionarlo cada vez. Solo se limpia si el usuario lo cambia manualmente.
             document.querySelector('#registro form').reset();
-            document.getElementById('tipo').value = tipo;
+            document.getElementById('tipo').value = tipoSeleccionado;
+            actualizarAyudaTipoMovimiento();
             document.getElementById('fecha').valueAsDate = new Date();
             document.getElementById('infoStockProducto').textContent = '';
             document.getElementById('registradoPor').value = localStorage.getItem('ultimoRegistradoPor') || '';
 
             actualizarDashboard();
             actualizarProductosList();
+            actualizarHistorialHoyRegistro();
 
             // Deja el cursor listo en "Producto" para poder registrar el siguiente enseguida
             document.getElementById('producto').focus();
+        }
+
+        // Texto de ayuda que aparece bajo "Tipo de Movimiento" al elegir "Transferir a
+        // Piso de Venta", para dejar claro de dónde sale y a dónde llega sin necesidad de
+        // campos de origen/destino adicionales (siempre es Almacén Punto de Venta → Piso).
+        function actualizarAyudaTipoMovimiento() {
+            const ayuda = document.getElementById('ayudaTipoMovimiento');
+            if(!ayuda) return;
+            const tipo = document.getElementById('tipo').value;
+            ayuda.textContent = tipo === 'transferir_piso' ? '🔀 De: Almacén Punto de Venta → A: Piso de Venta' : '';
         }
 
         // Deshace (elimina) el movimiento registrado más reciente, para corregir un
@@ -3703,6 +3805,7 @@
                 actualizarProductosList();
                 actualizarHistorialEditable();
                 actualizarAlmacenPrincipalList();
+                actualizarHistorialHoyRegistro();
                 mostrarMensaje('✅ Se deshizo el último movimiento correctamente', 'success');
             }
         }
@@ -5024,19 +5127,11 @@
             return agregados;
         }
 
-        // ACTUALIZAR SELECT DE PRODUCTOS DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
+        // ACTUALIZAR CAMPO DE PRODUCTO DEL FORMULARIO DE REGISTRO (solo productos del catálogo)
         function actualizarProductosList() {
             const catalogo = cargarProductos();
             const input = document.getElementById('producto');
-            const datalist = document.getElementById('listaProductosRegistro');
             const valorActual = input.value;
-
-            const opciones = catalogo
-                .sort((a, b) => a.nombre.localeCompare(b.nombre))
-                .map(p => `<option value="${p.nombre.replace(/"/g, '&quot;')}">${p.nombre} (${p.sku})</option>`)
-                .join('');
-
-            datalist.innerHTML = opciones;
 
             // Conservar lo que se había escrito/seleccionado si el producto sigue existiendo
             if(valorActual && buscarProductoPorNombre(valorActual)) {
@@ -5078,33 +5173,46 @@
                 stock[m.producto].movimientos++;
             });
 
-            // Mostrar productos con bajo stock (según el mínimo configurado en cada producto; 10 por defecto)
+            // Mostrar productos con bajo stock (según el mínimo configurado en cada producto; 10 por defecto).
+            // Se compara contra el Piso de Venta (lo que realmente se está vendiendo) cuando hay
+            // datos de la última comparación importada en "Pedidos"; si un producto no tiene dato
+            // de piso todavía, se cae al stock del Almacén Punto de Venta como antes.
             const catalogoParaMinimos = cargarProductos();
             const obtenerMinimo = (nombreProd) => {
                 const info = catalogoParaMinimos.find(p => p.nombre.trim().toLowerCase() === nombreProd.trim().toLowerCase());
                 return (info && info.stockMinimo !== undefined && info.stockMinimo !== null) ? info.stockMinimo : 10;
             };
+            const pisoPorNombre = {};
+            if(typeof resultadoComparacionPiso !== 'undefined' && resultadoComparacionPiso && resultadoComparacionPiso.length > 0) {
+                resultadoComparacionPiso.forEach(r => { pisoPorNombre[r.nombre.trim().toLowerCase()] = r.piso; });
+            }
             const bajoStock = Object.entries(stock)
-                .map(([prod, s]) => [prod, s, obtenerMinimo(prod)])
-                .filter(([_, s, minimo]) => s.neto <= minimo && s.neto >= 0)
-                .sort((a, b) => a[1].neto - b[1].neto);
+                .map(([prod, s]) => {
+                    const minimo = obtenerMinimo(prod);
+                    const piso = pisoPorNombre[prod.trim().toLowerCase()];
+                    const usaPiso = piso !== undefined && piso !== null;
+                    const cantidad = usaPiso ? piso : s.neto;
+                    return [prod, s, minimo, cantidad, usaPiso];
+                })
+                .filter(([_, s, minimo, cantidad]) => cantidad <= minimo && cantidad >= 0)
+                .sort((a, b) => a[3] - b[3]);
 
             document.getElementById('contadorBajoStock').textContent = bajoStock.length > 0 ? `(${bajoStock.length})` : '';
 
             document.getElementById('bajoStock').innerHTML = bajoStock.length > 0 ? 
-                bajoStock.map(([prod, s, minimo]) => `
+                bajoStock.map(([prod, s, minimo, cantidad, usaPiso]) => `
                     <div class="product-card low-stock">
                         <div class="product-name">⚠️ ${prod}</div>
                         <div class="metric">
-                            <span>Stock Actual:</span>
-                            <strong>${s.neto} ${s.unidad}</strong>
+                            <span>${usaPiso ? 'Piso de Venta:' : 'Almacén Punto de Venta:'}</span>
+                            <strong>${cantidad} ${s.unidad}</strong>
                         </div>
                         <div class="metric">
                             <span>SKU:</span>
                             <strong>${s.referencia || 'N/A'}</strong>
                         </div>
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${Math.min(s.neto / Math.max(minimo, 1) * 100, 100)}%"></div>
+                            <div class="progress-fill" style="width: ${Math.min(cantidad / Math.max(minimo, 1) * 100, 100)}%"></div>
                         </div>
                     </div>
                 `).join('') : '<p style="color: #999;">No hay productos con bajo stock</p>';
@@ -6708,13 +6816,18 @@
         // ===== ALMACÉN PRINCIPAL (bodega separada) =====
         // Busca el producto correspondiente en el catálogo (Punto de Venta / "Almacén de Piso
         // de Venta"), primero por SKU y si no por nombre, y devuelve su stock actual calculado.
-        function obtenerStockPuntoVentaPara(pAlmacenPrincipal) {
+        function obtenerProductoCatalogoPara(pAlmacenPrincipal) {
             const productos = cargarProductos();
             let producto = null;
             if(pAlmacenPrincipal.sku && pAlmacenPrincipal.sku.trim()) {
                 producto = productos.find(x => (x.sku || '').trim().toUpperCase() === pAlmacenPrincipal.sku.trim().toUpperCase());
             }
             if(!producto) producto = buscarProductoPorNombre(pAlmacenPrincipal.nombre);
+            return producto;
+        }
+
+        function obtenerStockPuntoVentaPara(pAlmacenPrincipal) {
+            const producto = obtenerProductoCatalogoPara(pAlmacenPrincipal);
             if(!producto) return null;
             return calcularStockProducto(producto.nombre);
         }
@@ -8438,6 +8551,7 @@
         // resumen), para que quede colapsado por defecto y no tape el catálogo de
         // productos que está debajo.
         let pedidosResumenTopAbierto = false;
+        let historialHoyRegistroAbierto = false;
 
         function alternarPedidosResumenTop() {
             pedidosResumenTopAbierto = !pedidosResumenTopAbierto;
@@ -8543,10 +8657,18 @@
             cont.innerHTML = filtrados.map(p => {
                 let filasQty, cantidadOrigen;
                 const piso = obtenerPisoVentaPara(p);
+                // El mínimo configurado es el del producto del catálogo (Almacén Punto de
+                // Venta); si se está armando desde Almacén Principal, p es el ítem de esa
+                // bodega y hay que buscar su producto correspondiente para tomar su mínimo.
+                const productoParaMinimo = pedidoNuevoOrigen === 'almacenPrincipal' ? obtenerProductoCatalogoPara(p) : p;
+                const minimoPiso = productoParaMinimo ? ((productoParaMinimo.stockMinimo === undefined || productoParaMinimo.stockMinimo === null) ? 10 : productoParaMinimo.stockMinimo) : 10;
                 let pisoTexto;
                 if(piso === undefined) pisoTexto = '<span style="color:#bbb; font-size:11px;">Importa Excel del Punto de Venta</span>';
                 else if(piso === null) pisoTexto = '-';
-                else pisoTexto = `<span style="${piso <= 0 ? 'color:#c0392b;' : ''}">${piso}</span>`;
+                else {
+                    const colorPiso = piso <= 0 ? '#c0392b' : (piso <= minimoPiso ? '#ff9800' : '');
+                    pisoTexto = `<span style="${colorPiso ? `color:${colorPiso}; font-weight:600;` : ''}">${piso}</span>`;
+                }
 
                 if(pedidoNuevoOrigen === 'almacenPrincipal') {
                     const stockPV = obtenerStockPuntoVentaPara(p);
@@ -8612,16 +8734,34 @@
         }
 
         // Qué tan urgente es reponer un producto: mientras más bajo (o más negativo) el
-        // número, más urgente. Para el Almacén Principal se usa la cantidad directa (no
-        // tiene mínimo configurado); para el Punto de Venta se usa cuánto le falta para
-        // llegar a su stockMinimo (si ya está por debajo, da negativo = más urgente).
+        // número, más urgente. La urgencia siempre se mide en el DESTINO (a dónde va a
+        // llegar la mercancía), no en el almacén de origen desde donde se pide, porque lo
+        // que importa es qué se está acabando donde se vende, no cuánto queda en la
+        // bodega de la que se saca.
         function calcularUrgenciaPedido(p) {
             if(pedidoNuevoOrigen === 'almacenPrincipal') {
-                return p.cantidad;
+                // Desde Almacén Principal se puede ir a Almacén Punto de Venta o directo a
+                // Piso de Venta (se elige por producto al armar el pedido), así que se toma
+                // el más urgente de los dos destinos posibles.
+                const productoDestino = obtenerProductoCatalogoPara(p);
+                const minimo = productoDestino ? ((productoDestino.stockMinimo === undefined || productoDestino.stockMinimo === null) ? 10 : productoDestino.stockMinimo) : 10;
+                const stockPV = obtenerStockPuntoVentaPara(p);
+                const piso = obtenerPisoVentaPara(p);
+                const candidatos = [];
+                if(stockPV !== null) candidatos.push(stockPV - minimo);
+                if(piso !== undefined && piso !== null) candidatos.push(piso - minimo);
+                // Si el producto todavía no existe en el catálogo de Punto de Venta (sin
+                // dato de destino), se usa el propio stock del Almacén Principal como
+                // último recurso, para no dejarlo sin ordenar.
+                return candidatos.length > 0 ? Math.min(...candidatos) : p.cantidad;
             }
-            const stock = calcularStockProducto(p.nombre);
+            // Desde Almacén Punto de Venta el destino siempre es el Piso de Venta.
             const minimo = (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo;
-            return stock - minimo;
+            const piso = obtenerPisoVentaPara(p);
+            if(piso !== undefined && piso !== null) return piso - minimo;
+            // Sin Excel del Punto de Venta importado en esta sesión no hay dato de Piso de
+            // Venta: se usa el propio stock del Almacén Punto de Venta como aproximación.
+            return calcularStockProducto(p.nombre) - minimo;
         }
 
         // Preferencia guardada para que, al volver a la pestaña, se recuerde si José
