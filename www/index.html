@@ -1764,6 +1764,9 @@
                         <option value="Otros">Otros</option>
                         <option value="Sin categoría">Sin categoría</option>
                     </select>
+                    <select id="filtroProductoUbicacion" onchange="filtrarProductos()" style="flex: 1; max-width: 200px;">
+                        <option value="">📍 Todas las ubicaciones</option>
+                    </select>
                     <button class="btn btn-secondary" onclick="limpiarFiltrosProductos()">Limpiar</button>
                     <button class="btn btn-primary" onclick="abrirModalAgregarProducto()">➕ Agregar Producto</button>
                     <button class="btn btn-secondary" style="background:#00897b; color:#fff;" onclick="abrirImportadorExcel('productos')">📥 Importar desde Excel</button>
@@ -1803,6 +1806,10 @@
                         <div style="background: #f9f9f9; padding: 15px; border-radius: 16px; border-left: 4px solid #9c27b0;">
                             <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Categoría</div>
                             <div id="modalCategoria" style="font-size: 16px; font-weight: bold; color: #9c27b0;">-</div>
+                        </div>
+                        <div style="background: #f9f9f9; padding: 15px; border-radius: 16px; border-left: 4px solid #009688;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 5px;">📍 Ubicación</div>
+                            <div id="modalUbicacion" style="font-size: 16px; font-weight: bold; color: #009688;">-</div>
                         </div>
                         <div style="background: #f9f9f9; padding: 15px; border-radius: 16px; border-left: 4px solid #4caf50;">
                             <div style="font-size: 12px; color: #666; margin-bottom: 5px;">Entradas Totales</div>
@@ -1894,6 +1901,13 @@
                                     <option value="otro">otro</option>
                                 </select>
                             </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="prodUbicacion">📍 Ubicación / Estante</label>
+                            <input type="text" id="prodUbicacion" placeholder="Ej: Pasillo 3, Estante B" list="listaUbicacionesExistentes">
+                            <datalist id="listaUbicacionesExistentes"></datalist>
+                            <small style="color: #888;">Dónde está físicamente el producto en el almacén. Te sirve para encontrarlo rápido y para filtrar durante el conteo.</small>
                         </div>
 
                         <div class="form-group">
@@ -2695,6 +2709,9 @@
 
                 <div class="form-group">
                     <input type="text" id="buscadorConteoAlmacen" placeholder="🔎 Buscar producto o SKU..." oninput="filtrarConteoAlmacen(); mostrarSugerenciasProducto(this)" onfocus="mostrarSugerenciasProducto(this)" onblur="ocultarSugerenciasProducto()">
+                    <select id="filtroConteoUbicacion" onchange="filtrarConteoAlmacen()" style="margin-top: 8px; width: 100%;">
+                        <option value="">📍 Todas las ubicaciones</option>
+                    </select>
                 </div>
 
                 <div class="progreso-conteo-wrap">
@@ -3333,6 +3350,15 @@
             form.reset();
             document.getElementById('mensajeModalProducto').innerHTML = '';
 
+            // Autocompletado de ubicaciones ya usadas, para no tener que escribir
+            // siempre lo mismo y para mantener nombres consistentes (ej: no terminar con
+            // "Pasillo 3" y "pasillo 3" como si fueran dos lugares distintos).
+            const listaUbic = document.getElementById('listaUbicacionesExistentes');
+            if(listaUbic) {
+                const ubicaciones = [...new Set(cargarProductos().map(p => (p.ubicacion || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+                listaUbic.innerHTML = ubicaciones.map(u => `<option value="${escaparHtmlSimple(u)}">`).join('');
+            }
+
             const prodSku = document.getElementById('prodSku');
 
             if(nombreExistente) {
@@ -3344,6 +3370,7 @@
                 prodSku.value = producto.sku || '';
                 document.getElementById('prodCategoria').value = producto.categoria || 'Sin categoría';
                 document.getElementById('prodUnidad').value = producto.unidad || 'piezas';
+                document.getElementById('prodUbicacion').value = producto.ubicacion || '';
                 document.getElementById('prodStockInicial').value = producto.stockInicial || 0;
                 document.getElementById('prodStockMinimo').value = (producto.stockMinimo === undefined || producto.stockMinimo === null) ? 10 : producto.stockMinimo;
                 // Al editar, el SKU existente se conserva; solo se puede tocar si el usuario pulsa "Editar"
@@ -3426,6 +3453,7 @@
             const sku = document.getElementById('prodSku').value.trim();
             const categoria = document.getElementById('prodCategoria').value;
             const unidad = document.getElementById('prodUnidad').value;
+            const ubicacion = document.getElementById('prodUbicacion').value.trim();
             const stockInicial = parseInt(document.getElementById('prodStockInicial').value) || 0;
             const stockMinimoInput = document.getElementById('prodStockMinimo').value;
             const stockMinimo = stockMinimoInput === '' ? 10 : (parseInt(stockMinimoInput) || 0);
@@ -3462,7 +3490,7 @@
                 const idx = productos.findIndex(p => p.nombre.trim().toLowerCase() === nombreOriginal.trim().toLowerCase());
                 const anterior = idx !== -1 ? productos[idx] : null;
                 if(idx !== -1) {
-                    productos[idx] = { ...productos[idx], nombre, sku, categoria, unidad, stockInicial, stockMinimo };
+                    productos[idx] = { ...productos[idx], nombre, sku, categoria, unidad, ubicacion, stockInicial, stockMinimo };
                 }
                 // Si cambió el nombre, el SKU, la categoría o la unidad, actualizar también los
                 // movimientos históricos para que no queden con datos viejos (antes esto solo
@@ -3485,7 +3513,7 @@
                 }
             } else {
                 // Nuevo producto
-                productos.push({ nombre, sku, categoria, unidad, stockInicial, stockMinimo, fechaCreacion: new Date().toISOString() });
+                productos.push({ nombre, sku, categoria, unidad, ubicacion, stockInicial, stockMinimo, fechaCreacion: new Date().toISOString() });
             }
 
             guardarProductosCatalogo(productos);
@@ -3848,6 +3876,7 @@
                     referencia: p.sku,
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
+                    ubicacion: (p.ubicacion || '').trim(),
                     stockMinimo: (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo,
                     entradas, salidas, neto,
                     movimientos: numMovimientos
@@ -3866,11 +3895,11 @@
                     else { estado = 'ok'; colorStock = '#4caf50'; etiquetaEstado = '🟢 OK'; }
 
                     return `
-                        <div class="prod-card ${estado}" data-categoria="${escaparHtmlSimple(datos.categoria)}" data-neto="${datos.neto}" data-nombre="${escaparHtmlSimple(datos.nombre.toLowerCase())}" data-sku="${escaparHtmlSimple((datos.referencia || '').toLowerCase())}">
+                        <div class="prod-card ${estado}" data-categoria="${escaparHtmlSimple(datos.categoria)}" data-neto="${datos.neto}" data-nombre="${escaparHtmlSimple(datos.nombre.toLowerCase())}" data-sku="${escaparHtmlSimple((datos.referencia || '').toLowerCase())}" data-ubicacion="${escaparHtmlSimple(datos.ubicacion.toLowerCase())}">
                             <div class="prod-card-top">
                                 <div>
                                     <div class="prod-card-nombre">${escaparHtmlSimple(datos.nombre)}</div>
-                                    <div class="prod-card-sub">SKU ${escaparHtmlSimple(datos.referencia || '-')}</div>
+                                    <div class="prod-card-sub">SKU ${escaparHtmlSimple(datos.referencia || '-')}${datos.ubicacion ? ` · 📍 ${escaparHtmlSimple(datos.ubicacion)}` : ''}</div>
                                 </div>
                                 <div class="prod-card-estado" style="color: ${colorStock};">${etiquetaEstado}</div>
                             </div>
@@ -3887,7 +3916,22 @@
                     `;
                 }).join('');
 
+            actualizarFiltroUbicaciones('filtroProductoUbicacion', catalogo);
             filtrarProductos();
+        }
+
+        // Rellena un <select> de ubicaciones con las que existan en el catálogo, dejando
+        // seleccionada la opción actual si sigue existiendo (para no perder el filtro
+        // activo cada vez que se refresca la lista).
+        function actualizarFiltroUbicaciones(idSelect, catalogo) {
+            const select = document.getElementById(idSelect);
+            if(!select) return;
+            const valorActual = select.value;
+            const ubicaciones = [...new Set(catalogo.map(p => (p.ubicacion || '').trim()).filter(Boolean))]
+                .sort((a, b) => a.localeCompare(b, 'es'));
+            select.innerHTML = '<option value="">📍 Todas las ubicaciones</option>' +
+                ubicaciones.map(u => `<option value="${escaparHtmlSimple(u)}">${escaparHtmlSimple(u)}</option>`).join('');
+            if(ubicaciones.includes(valorActual)) select.value = valorActual;
         }
 
         // OCULTAR / MOSTRAR PRODUCTOS AGOTADOS (stock neto <= 0), con preferencia guardada
@@ -3937,6 +3981,7 @@
 
             document.getElementById('modalProductoNombre').textContent = `${nombreProducto} (SKU: ${producto.sku || '-'})`;
             document.getElementById('modalCategoria').textContent = producto.categoria || 'Sin categoría';
+            document.getElementById('modalUbicacion').textContent = producto.ubicacion || 'Sin asignar';
             document.getElementById('modalEntradas').textContent = entradas;
             document.getElementById('modalSalidas').textContent = salidas;
             document.getElementById('modalNeto').textContent = neto + ' ' + unidad;
@@ -3979,6 +4024,7 @@
         function filtrarProductos() {
             const texto = document.getElementById('busqProductoNombre').value.toLowerCase();
             const categoria = document.getElementById('filtroProductoCategoria').value;
+            const ubicacionSel = document.getElementById('filtroProductoUbicacion') ? document.getElementById('filtroProductoUbicacion').value.toLowerCase() : '';
             const ocultarAgotados = localStorage.getItem('ocultarAgotados') === '1';
             const tarjetas = document.getElementById('listaProductosCompleta').querySelectorAll('.prod-card');
 
@@ -3986,15 +4032,17 @@
                 const nombreProducto = tarjeta.dataset.nombre || '';
                 const skuProducto = tarjeta.dataset.sku || '';
                 const categoriaFila = tarjeta.dataset.categoria || '';
+                const ubicacionFila = tarjeta.dataset.ubicacion || '';
                 const neto = parseFloat(tarjeta.dataset.neto);
 
                 // Busca tanto en el nombre como en el SKU, así se puede encontrar un
                 // producto escribiendo su código aunque no se recuerde el nombre exacto.
                 const cumpleTexto = nombreProducto.includes(texto) || skuProducto.includes(texto);
                 const cumpleCategoria = !categoria || categoriaFila === categoria;
+                const cumpleUbicacion = !ubicacionSel || ubicacionFila === ubicacionSel;
                 const cumpleAgotado = !ocultarAgotados || !(neto <= 0);
 
-                tarjeta.style.display = cumpleTexto && cumpleCategoria && cumpleAgotado ? '' : 'none';
+                tarjeta.style.display = cumpleTexto && cumpleCategoria && cumpleUbicacion && cumpleAgotado ? '' : 'none';
             });
         }
 
@@ -4002,6 +4050,7 @@
         function limpiarFiltrosProductos() {
             document.getElementById('busqProductoNombre').value = '';
             document.getElementById('filtroProductoCategoria').value = '';
+            if(document.getElementById('filtroProductoUbicacion')) document.getElementById('filtroProductoUbicacion').value = '';
             filtrarProductos();
         }
 
@@ -4622,6 +4671,7 @@
                     sku: p.sku,
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
+                    ubicacion: p.ubicacion || '',
                     stock: calcularStockProducto(p.nombre)
                 })) : [],
                 almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
@@ -4805,6 +4855,7 @@
                     sku: p.sku,
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
+                    ubicacion: p.ubicacion || '',
                     stock: calcularStockProducto(p.nombre)
                 })) : [],
                 almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
@@ -7785,12 +7836,13 @@
                 const nombreOnclick = escaparParaOnclick(p.nombre);
                 const valorGuardado = data.conteos[p.nombre];
                 const tieneValor = valorGuardado !== undefined && valorGuardado !== null && valorGuardado !== '';
+                const ubicacion = (p.ubicacion || '').trim();
                 return `
-                    <div class="prod-card conteo-item ${tieneValor ? 'ok' : ''}" data-nombre="${nombreEscapado.toLowerCase()}" data-sku="${escaparHtmlSimple((p.sku || '').toLowerCase())}">
+                    <div class="prod-card conteo-item ${tieneValor ? 'ok' : ''}" data-nombre="${nombreEscapado.toLowerCase()}" data-sku="${escaparHtmlSimple((p.sku || '').toLowerCase())}" data-ubicacion="${escaparHtmlSimple(ubicacion.toLowerCase())}">
                         <div class="prod-card-top">
                             <div>
                                 <div class="prod-card-nombre">${nombreEscapado}</div>
-                                <div class="prod-card-sub">SKU ${escaparHtmlSimple(p.sku || '-')}</div>
+                                <div class="prod-card-sub">SKU ${escaparHtmlSimple(p.sku || '-')}${ubicacion ? ` · 📍 ${escaparHtmlSimple(ubicacion)}` : ''}</div>
                             </div>
                             ${tieneValor ? '<div class="prod-card-estado" style="color:#4caf50;">✅ Contado</div>' : ''}
                         </div>
@@ -7799,6 +7851,7 @@
                 `;
             }).join('');
 
+            actualizarFiltroUbicaciones('filtroConteoUbicacion', catalogo);
             filtrarConteoAlmacen();
             actualizarProgresoConteoAlmacen();
         }
@@ -7847,9 +7900,12 @@
         function filtrarConteoAlmacen() {
             const inputBusqueda = document.getElementById('buscadorConteoAlmacen');
             const texto = inputBusqueda ? inputBusqueda.value.toLowerCase().trim() : '';
+            const selectUbicacion = document.getElementById('filtroConteoUbicacion');
+            const ubicacionSel = selectUbicacion ? selectUbicacion.value.toLowerCase() : '';
             document.querySelectorAll('#listaConteoAlmacen .conteo-item').forEach(item => {
-                const coincide = !texto || item.dataset.nombre.includes(texto) || item.dataset.sku.includes(texto);
-                item.style.display = coincide ? '' : 'none';
+                const coincideTexto = !texto || item.dataset.nombre.includes(texto) || item.dataset.sku.includes(texto);
+                const coincideUbicacion = !ubicacionSel || (item.dataset.ubicacion || '') === ubicacionSel;
+                item.style.display = coincideTexto && coincideUbicacion ? '' : 'none';
             });
         }
 
