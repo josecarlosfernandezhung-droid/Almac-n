@@ -4308,41 +4308,42 @@
             }
         }
 
-        // Revierte los efectos secundarios de una transferencia deshecha desde el Historial:
-        // 1) siempre devuelve la cantidad al Almacén Principal (de donde salió).
-        // 2) si el destino era "Piso de Venta" directo, también resta esa cantidad del
-        //    dato de piso ya calculado en "Piso vs Almacén" (si ese resultado sigue guardado).
-        // Si el destino era "Almacén Punto de Venta" (el catálogo), no hace falta nada más:
-        // al quitarse el movimiento tipo "transferencia" del historial, calcularStockProducto()
-        // deja de sumarlo automáticamente y el stock del catálogo queda correcto solo.
+        // Revierte los efectos secundarios de una transferencia deshecha desde el Historial,
+        // según de dónde a dónde se hizo: devuelve la cantidad al origen (Almacén Principal,
+        // un almacén extra o el dato de Piso de Venta) y la quita del destino (si era
+        // Almacén Principal, un almacén extra o Piso de Venta). Si el origen o el destino
+        // era el Almacén Punto de Venta (el catálogo), no hace falta nada: al quitarse el
+        // movimiento tipo "transferencia" del historial, calcularStockProducto() deja de
+        // sumarlo/restarlo y el stock del catálogo queda correcto solo.
         function deshacerEfectosTransferencia(movimiento) {
-            let lista = cargarAlmacenPrincipal();
-            let p = null;
-            if(movimiento.referencia) {
-                p = lista.find(x => (x.sku || '').trim().toUpperCase() === movimiento.referencia.trim().toUpperCase());
-            }
-            if(!p) p = lista.find(x => x.nombre.trim().toLowerCase() === movimiento.producto.trim().toLowerCase());
-            if(p) {
-                p.cantidad = (p.cantidad || 0) + movimiento.cantidad;
-                guardarAlmacenPrincipal(lista);
+            const origen = valorAlmacenDesdeEtiquetaMovimiento(movimiento.origen);
+            const destino = valorAlmacenDesdeEtiquetaMovimiento(movimiento.destino);
+            const cantidad = movimiento.cantidad;
+            const item = { nombre: movimiento.producto, sku: movimiento.referencia || '', unidad: movimiento.unidad || '' };
+
+            // 1) Devolver la cantidad al origen. Punto de Venta no necesita nada: su
+            //    stock se recalcula solo desde el historial al quitarse el movimiento.
+            if(origen === 'pisoVenta') {
+                ajustarPisoVentaTransferencia(item.nombre, item.sku, cantidad, destino, true);
+            } else if(origen === 'almacenPrincipal' || (origen && origen.startsWith('extra_'))) {
+                sumarStockEnAlmacenTransferencia(origen, item, cantidad);
             }
 
-            if(movimiento.destino === 'Piso de Venta' && resultadoComparacionPiso && resultadoComparacionPiso.length > 0) {
-                const r = resultadoComparacionPiso.find(x =>
-                    (movimiento.referencia && (x.sku || '').trim().toUpperCase() === movimiento.referencia.trim().toUpperCase()) ||
-                    x.nombre.trim().toLowerCase() === movimiento.producto.trim().toLowerCase()
+            // 2) Quitar la cantidad del destino (sin dejar el stock en negativo).
+            if(destino === 'pisoVenta') {
+                ajustarPisoVentaTransferencia(item.nombre, item.sku, -cantidad, origen, true);
+            } else if(destino === 'almacenPrincipal' || (destino && destino.startsWith('extra_'))) {
+                const idExtra = destino.startsWith('extra_') ? destino.slice(6) : null;
+                const lista = idExtra ? cargarProductosAlmacenExtra(idExtra) : cargarAlmacenPrincipal();
+                const skuUpper = item.sku.trim().toUpperCase();
+                const p = lista.find(x =>
+                    (skuUpper && (x.sku || '').trim().toUpperCase() === skuUpper) ||
+                    x.nombre.trim().toLowerCase() === item.nombre.trim().toLowerCase()
                 );
-                if(r && r.piso !== null) {
-                    r.piso -= movimiento.cantidad;
-                    if(r.total !== null) r.total -= movimiento.cantidad;
-                    const minimo = 10;
-                    if(r.piso <= 0) r.estado = 'agotado';
-                    else if(r.piso <= minimo) r.estado = 'bajo';
-                    else r.estado = 'ok';
-                    guardarResultadoComparacionPiso();
-                    const contResumenPiso = document.getElementById('resumenComparacionPiso');
-                    if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
-                    if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
+                if(p) {
+                    p.cantidad = Math.max(0, (parseFloat(p.cantidad) || 0) - cantidad);
+                    if(idExtra) guardarProductosAlmacenExtra(idExtra, lista);
+                    else guardarAlmacenPrincipal(lista);
                 }
             }
         }
@@ -7722,7 +7723,8 @@
             const select = document.getElementById('transferirAlmExtraDestino');
             const opciones = [
                 { value: 'almacenPrincipal', label: '🏭 Almacén Principal' },
-                { value: 'productos', label: '🏬 Punto de Venta' }
+                { value: 'productos', label: '🏬 Punto de Venta' },
+                { value: 'pisoVenta', label: '🧍 Piso de Venta' }
             ];
             cargarAlmacenesExtra().forEach(a => {
                 if(a.id !== almacenExtraActualId) opciones.push({ value: 'extra_' + a.id, label: `${a.icono || '📦'} ${a.nombre}` });
@@ -7864,6 +7866,13 @@
                 destinoLabelFinal = 'Punto de Venta';
                 actualizarProductosList();
                 actualizarListadoProductos();
+            } else if(destino === 'pisoVenta') {
+                if(!ajustarPisoVentaTransferencia(p.nombre, p.sku, cantidad, 'extra_' + almacenExtraActualId)) {
+                    msg.innerHTML = '<div class="alert alert-error">Este producto no tiene dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".</div>';
+                    return;
+                }
+                destinoLabelFinal = 'Piso de Venta';
+                registrarMovimientoTransferenciaGenerico(origenLabel, p, cantidad, destinoLabelFinal);
             } else if(destino.startsWith('extra_')) {
                 const idDestino = destino.slice(6);
                 let listaDestino = cargarProductosAlmacenExtra(idDestino);
@@ -9050,7 +9059,8 @@
         function listaAlmacenesTransferencia() {
             const lista = [
                 { value: 'puntoVenta', label: '🏬 Punto de Venta' },
-                { value: 'almacenPrincipal', label: '🏭 Almacén Principal' }
+                { value: 'almacenPrincipal', label: '🏭 Almacén Principal' },
+                { value: 'pisoVenta', label: '🧍 Piso de Venta' }
             ];
             cargarAlmacenesExtra().forEach(a => lista.push({ value: 'extra_' + a.id, label: `${a.icono || '📦'} ${a.nombre}` }));
             return lista;
@@ -9070,7 +9080,68 @@
         function etiquetaAlmacenParaMovimiento(value) {
             if(value === 'puntoVenta') return ALMACEN_PUNTO_VENTA_LABEL;
             if(value === 'almacenPrincipal') return 'Almacén Principal';
+            if(value === 'pisoVenta') return 'Piso de Venta';
             return etiquetaAlmacenTransferencia(value);
+        }
+
+        // Convierte el texto guardado en origen/destino de un movimiento de vuelta al
+        // "value" del almacén ('puntoVenta', 'almacenPrincipal', 'pisoVenta' o
+        // 'extra_<id>'). Ignora el emoji del principio, porque según desde dónde se hizo
+        // la transferencia el almacén extra se guardó con o sin icono.
+        function valorAlmacenDesdeEtiquetaMovimiento(label) {
+            const limpiar = (t) => String(t || '').replace(/^[^\p{L}\p{N}]+/u, '').trim().toLowerCase();
+            const l = limpiar(label);
+            if(!l) return null;
+            if(l === 'almacén punto de venta' || l === 'punto de venta') return 'puntoVenta';
+            if(l === 'almacén principal') return 'almacenPrincipal';
+            if(l === 'piso de venta') return 'pisoVenta';
+            const extra = cargarAlmacenesExtra().find(a => limpiar(a.nombre) === l);
+            return extra ? 'extra_' + extra.id : null;
+        }
+
+        // ===== PISO DE VENTA COMO ORIGEN / DESTINO DE TRANSFERENCIAS =====
+        // El Piso de Venta no guarda una cantidad suelta: es el dato calculado en "Piso vs
+        // Almacén" (Total del Excel − stock del catálogo). Por eso mover stock desde o
+        // hacia el piso es ajustar ese resultado, igual que ya hacen las otras
+        // transferencias al piso:
+        // - contra el catálogo (Almacén Punto de Venta): cambia "almacen" y "piso", el total no.
+        // - contra cualquier otro almacén: cambia "piso" y también el "total" del Excel.
+        function buscarRegistroPisoVenta(nombre, sku) {
+            if(!resultadoComparacionPiso || resultadoComparacionPiso.length === 0) return null;
+            const skuUpper = (sku || '').trim().toUpperCase();
+            const nombreLower = (nombre || '').trim().toLowerCase();
+            const r = resultadoComparacionPiso.find(x =>
+                (skuUpper && skuUpper !== '-' && (x.sku || '').trim().toUpperCase() === skuUpper) ||
+                (x.nombre || '').trim().toLowerCase() === nombreLower
+            );
+            return (r && r.piso !== null && r.piso !== undefined) ? r : null;
+        }
+
+        // delta > 0: entra al piso; delta < 0: sale del piso. otroLado = value del almacén
+        // con el que se hace el movimiento. Devuelve false (sin tocar nada) si el producto
+        // no tiene dato de piso o, al sacar, si no alcanza — salvo forzar=true (deshacer).
+        function ajustarPisoVentaTransferencia(nombre, sku, delta, otroLado, forzar) {
+            const r = buscarRegistroPisoVenta(nombre, sku);
+            if(!r) return false;
+            if(delta < 0 && !forzar && r.piso < -delta) return false;
+
+            r.piso += delta;
+            if(otroLado === 'puntoVenta') {
+                if(r.almacen !== null && r.almacen !== undefined) r.almacen -= delta;
+            } else if(r.total !== null && r.total !== undefined) {
+                r.total += delta;
+            }
+            const prod = buscarProductoPorNombre(r.nombre);
+            const minimo = (prod && prod.stockMinimo !== undefined && prod.stockMinimo !== null) ? prod.stockMinimo : 10;
+            if(r.piso <= 0) r.estado = 'agotado';
+            else if(r.piso <= minimo) r.estado = 'bajo';
+            else r.estado = 'ok';
+            guardarResultadoComparacionPiso();
+
+            const contResumenPiso = document.getElementById('resumenComparacionPiso');
+            if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+            if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
+            return true;
         }
 
         // Para un producto bajo/agotado (en Piso de Venta o en el propio Almacén Punto
@@ -9127,6 +9198,11 @@
             }
             if(value === 'almacenPrincipal') {
                 return cargarAlmacenPrincipal().map(p => ({ nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '', cantidad: parseFloat(p.cantidad) || 0 }));
+            }
+            if(value === 'pisoVenta') {
+                return (resultadoComparacionPiso || [])
+                    .filter(r => r.piso !== null && r.piso !== undefined)
+                    .map(r => ({ nombre: r.nombre, sku: (r.sku && r.sku !== '-') ? r.sku : '', unidad: '', cantidad: r.piso }));
             }
             if(value && value.startsWith('extra_')) {
                 return cargarProductosAlmacenExtra(value.slice(6)).map(p => ({ nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '', cantidad: parseFloat(p.cantidad) || 0 }));
@@ -9257,7 +9333,9 @@
             const item = items.find(x => x.nombre.trim().toLowerCase() === nombre.toLowerCase());
             const inputCantidad = document.getElementById('transferenciaLibreCantidad');
             if(!item) {
-                infoEl.innerHTML = '<span style="color:#c0392b;">No existe con ese nombre exacto en este almacén.</span>';
+                infoEl.innerHTML = (transferenciaLibreOrigen === 'pisoVenta' && items.length === 0)
+                    ? '<span style="color:#c0392b;">Todavía no hay dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".</span>'
+                    : '<span style="color:#c0392b;">No existe con ese nombre exacto en este almacén.</span>';
                 return;
             }
             infoEl.textContent = `Hay ${item.cantidad} disponibles en ${etiquetaAlmacenTransferencia(transferenciaLibreOrigen)}.`;
@@ -9294,15 +9372,27 @@
             if(!destino || destino === transferenciaLibreOrigen) { msg.innerHTML = '<div class="alert alert-error">Elige un destino distinto al origen.</div>'; return; }
 
             const origenEsPV = transferenciaLibreOrigen === 'puntoVenta';
+            const origenEsPiso = transferenciaLibreOrigen === 'pisoVenta';
             const destinoEsPV = destino === 'puntoVenta';
+            const destinoEsPiso = destino === 'pisoVenta';
 
-            if(!origenEsPV) {
+            // Antes de mover nada: el piso solo recibe productos que ya tienen dato ahí.
+            if(destinoEsPiso && !buscarRegistroPisoVenta(item.nombre, item.sku)) {
+                msg.innerHTML = `<div class="alert alert-error">"${escaparHtmlSimple(item.nombre)}" no tiene dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".</div>`;
+                return;
+            }
+
+            if(origenEsPiso) {
+                const ok = ajustarPisoVentaTransferencia(item.nombre, item.sku, -cantidad, destino);
+                if(!ok) { msg.innerHTML = '<div class="alert alert-error">No se pudo restar del Piso de Venta. Actualiza la pantalla e intenta de nuevo.</div>'; return; }
+            } else if(!origenEsPV) {
                 const ok = restarStockEnAlmacenTransferencia(transferenciaLibreOrigen, item.nombre, cantidad);
                 if(!ok) { msg.innerHTML = '<div class="alert alert-error">No se pudo restar del origen. Actualiza la pantalla e intenta de nuevo.</div>'; return; }
             }
 
             let productoCatalogo = null;
             if(destinoEsPV) productoCatalogo = sumarStockEnAlmacenTransferencia('puntoVenta', item, cantidad);
+            else if(destinoEsPiso) ajustarPisoVentaTransferencia(item.nombre, item.sku, cantidad, transferenciaLibreOrigen);
             else sumarStockEnAlmacenTransferencia(destino, item, cantidad);
 
             const origenLabelMov = etiquetaAlmacenParaMovimiento(transferenciaLibreOrigen);
