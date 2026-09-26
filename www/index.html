@@ -1695,7 +1695,18 @@
             <!-- DASHBOARD -->
             <div id="dashboard" class="tab-content active">
                 <h2>📊 Panel de Control</h2>
-                
+
+                <div id="dashboardSyncCard" style="display:none; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:#f5f7fa; border:1px solid #e0e0e0; border-radius:10px; padding:12px 16px; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-size:22px;">☁️</span>
+                        <div>
+                            <div id="dashboardSyncTitulo" style="font-weight:bold;">Sincronizada</div>
+                            <div id="dashboardSyncTexto" style="font-size:13px; color:#666;">Última sincronización real: —</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-success" onclick="sincronizarMovimientosAhora(true)">🔄 Sincronizar ahora</button>
+                </div>
+
                 <div class="dashboard">
                     <div class="stat-card">
                         <div class="stat-label">Total de Movimientos</div>
@@ -2180,7 +2191,7 @@
                 <div class="form-group">
                     <label for="pedidoCatalogoBuscador">Buscar producto (verás cuánto hay en cada lugar)</label>
                     <input type="text" id="pedidoCatalogoBuscador" placeholder="🔍 Escribe el nombre o SKU... (vacío = ver todos)" autocomplete="off"
-                        oninput="renderizarCatalogoPedidoNuevo()">
+                        oninput="pedidoNuevoLimiteVisible = 60; renderizarCatalogoPedidoNuevo()">
                 </div>
 
                 <div class="toggle-card">
@@ -3445,6 +3456,22 @@
             return mapa;
         }
 
+        // Índice del catálogo (Almacén Punto de Venta) por nombre y por SKU, para
+        // buscar el producto correspondiente a un ítem de otro almacén en O(1) en vez
+        // de releer y recorrer los 680+ productos cada vez (ver obtenerProductoCatalogoPara).
+        // Se usa en pantallas que comparan muchos productos a la vez, como "Almacén
+        // Principal" y "Pedidos" con origen Almacén Principal.
+        function construirMapaProductosPorNombreYSku(productos) {
+            const porNombre = new Map();
+            const porSku = new Map();
+            productos.forEach(p => {
+                porNombre.set(p.nombre.trim().toLowerCase(), p);
+                const skuUpper = (p.sku || '').trim().toUpperCase();
+                if(skuUpper) porSku.set(skuUpper, p);
+            });
+            return { porNombre, porSku };
+        }
+
         function abrirModalAgregarProducto(nombreExistente) {
             const form = document.querySelector('#modalAgregarProducto form');
             form.reset();
@@ -3780,6 +3807,12 @@
             } else if(tabName === 'almacenesExtra') {
                 volverListaAlmacenesExtra();
             } else if(tabName === 'pedidos') {
+                // elegirOrigenPedido() ya renderiza el catálogo por su cuenta cuando el
+                // pedido en curso está vacío (el caso normal al entrar a la pestaña); si
+                // ya había productos agregados, no hace nada (no permite cambiar de
+                // origen a medio armar) y hace falta el renderizarCatalogoPedidoNuevo()
+                // de más abajo. Antes se llamaba dos veces seguidas en el caso normal.
+                const yaHabiaItemsPedido = pedidoNuevoItems.length > 0;
                 elegirOrigenPedido(pedidoNuevoOrigen);
                 renderizarItemsPedidoNuevo();
                 renderizarListaPedidos();
@@ -3795,7 +3828,7 @@
                     btnUrgencia.classList.toggle('on', activoUrg);
                     btnUrgencia.setAttribute('aria-checked', String(activoUrg));
                 }
-                renderizarCatalogoPedidoNuevo();
+                if(yaHabiaItemsPedido) renderizarCatalogoPedidoNuevo();
                 renderizarResumenTransferenciasPedidos();
             } else if(tabName === 'sincronizacion') {
                 renderizarVisibilidadVisor();
@@ -4782,6 +4815,11 @@
         function sincronizarStockFirebase() {
             if(!firebaseStockRef) return;
             const catalogo = cargarProductos();
+            // Antes calcularStockProducto(p.nombre) por cada producto releía y volvía a
+            // parsear TODO localStorage (productos + movimientos) desde cero, para cada
+            // uno de los 680+ productos, en cada sincronización. Con el mapa de una sola
+            // pasada esto pasa de ~680 relecturas completas a 1 sola.
+            const mapaStockPV = construirMapaStockPuntoVenta();
             const snapshot = {
                 actualizado: new Date().toISOString(),
                 productos: esVisibleEnVisor('productos') ? catalogo.map(p => ({
@@ -4790,7 +4828,7 @@
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
                     ubicacion: p.ubicacion || '',
-                    stock: calcularStockProducto(p.nombre)
+                    stock: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0
                 })) : [],
                 almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
                     nombre: p.nombre,
@@ -4966,6 +5004,9 @@
             if(sincronizandoGitHub) return;
 
             const catalogo = cargarProductos();
+            // Mismo motivo que en sincronizarStockFirebase(): un solo mapa en vez de
+            // recalcular el stock producto por producto desde cero.
+            const mapaStockPV = construirMapaStockPuntoVenta();
             const snapshot = {
                 actualizado: new Date().toISOString(),
                 productos: esVisibleEnVisor('productos') ? catalogo.map(p => ({
@@ -4974,7 +5015,7 @@
                     categoria: p.categoria || 'Sin categoría',
                     unidad: p.unidad || 'piezas',
                     ubicacion: p.ubicacion || '',
-                    stock: calcularStockProducto(p.nombre)
+                    stock: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0
                 })) : [],
                 almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
                     nombre: p.nombre,
@@ -5133,6 +5174,57 @@
             el.style.color = color || '#666';
         }
 
+        // ===== TARJETA "SINCRONIZADA" DEL DASHBOARD =====
+        // Guarda cuándo fue la última vez que subir+bajar movimientos funcionó de verdad
+        // (no solo que se intentó), para mostrarlo en el Dashboard sin tener que entrar a
+        // "Stock en Vivo".
+        function guardarUltimaSincronizacionReal() {
+            localStorage.setItem('ultimaSincronizacionRealTs', String(Date.now()));
+            actualizarWidgetSyncDashboard();
+        }
+
+        function formatearTiempoRelativo(ts) {
+            const segundos = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+            if(segundos < 60) return `hace ${segundos} s`;
+            const minutos = Math.floor(segundos / 60);
+            if(minutos < 60) return `hace ${minutos} min`;
+            const horas = Math.floor(minutos / 60);
+            if(horas < 24) return `hace ${horas} h`;
+            const dias = Math.floor(horas / 24);
+            return `hace ${dias} día${dias === 1 ? '' : 's'}`;
+        }
+
+        // Se llama al abrir/refrescar el Dashboard y cada pocos segundos mientras la app
+        // está abierta, para que el "hace X" se vea moviéndose como en MypiCuadre. Si no
+        // hay sincronización configurada (Stock en Vivo, paso 4), la tarjeta se oculta en
+        // vez de mostrar un dato falso.
+        function actualizarWidgetSyncDashboard() {
+            const card = document.getElementById('dashboardSyncCard');
+            if(!card) return;
+            const config = (typeof cargarConfigGitHub === 'function') ? cargarConfigGitHub() : null;
+            if(!config) { card.style.display = 'none'; return; }
+
+            card.style.display = 'flex';
+            const tituloEl = document.getElementById('dashboardSyncTitulo');
+            const textoEl = document.getElementById('dashboardSyncTexto');
+            const tsGuardado = localStorage.getItem('ultimaSincronizacionRealTs');
+
+            if(sincronizandoMovimientos) {
+                tituloEl.textContent = '⏳ Sincronizando…';
+                textoEl.textContent = 'Subiendo y trayendo movimientos ahora mismo';
+            } else if(tsGuardado) {
+                tituloEl.textContent = '☁️ Sincronizada';
+                textoEl.textContent = `Última sincronización real: ${formatearTiempoRelativo(parseInt(tsGuardado, 10))}`;
+            } else {
+                tituloEl.textContent = 'Todavía sin sincronizar';
+                textoEl.textContent = 'Toca "Sincronizar ahora" para subir y traer los movimientos';
+            }
+        }
+
+        // Refresca el texto "hace X" aunque no haya sincronizado nada nuevo, igual que en
+        // MypiCuadre. Corre siempre (no solo con el Dashboard abierto) porque es barato.
+        setInterval(actualizarWidgetSyncDashboard, 5000);
+
         // Ciclo completo: sube lo propio y luego trae lo de los demás.
         // esManual=true cuando lo dispara el botón (para avisar con más detalle).
         function sincronizarMovimientosAhora(esManual) {
@@ -5155,9 +5247,11 @@
                     if(okSubida && okBajada) {
                         marcarSyncMovimientosPendiente(false); // ya no quedan cambios sin subir
                         actualizarEstadoSyncMovimientos(`🟢 Sincronizado ${hora}` + (traidos > 0 ? ` — ${traidos} movimiento(s) nuevo(s) de otros dispositivos` : ''), '#2e7d32');
+                        guardarUltimaSincronizacionReal();
                         if(esManual) mostrarMensajeSyncMovimientos(traidos > 0 ? `✅ Se trajeron ${traidos} movimiento(s) nuevo(s).` : '✅ Ya estabas al día, no había nada nuevo.', 'success');
                     } else {
                         actualizarEstadoSyncMovimientos('🟡 No se pudo sincronizar ahora (revisa tu conexión) — se reintenta solo', '#f57c00');
+                        actualizarWidgetSyncDashboard();
                         if(esManual) mostrarMensajeSyncMovimientos('❌ No se pudo sincronizar. Revisa tu conexión a internet e inténtalo de nuevo.', 'error');
                     }
                 });
@@ -5322,6 +5416,8 @@
             document.getElementById('totalEntradas').textContent = totalEntradas;
             document.getElementById('totalSalidas').textContent = totalSalidas;
             document.getElementById('productosUnicos').textContent = productosUnicos;
+
+            actualizarWidgetSyncDashboard();
 
             sincronizarStockFirebase();
             sincronizarStockGitHub();
@@ -5740,6 +5836,12 @@
 
             const movimientos = cargarDatos();
             const catalogo = cargarProductos();
+            // Una sola pasada para el stock de todo el catálogo, en vez de que cada
+            // reporte llame a calcularStockProducto() por producto (eso releía y
+            // parseaba productos+movimientos completos una vez por cada uno de los
+            // 680+ productos: aquí era donde más se sentía la lentitud).
+            const mapaStockPV = construirMapaStockPuntoVenta();
+            const stockDe = (nombre) => mapaStockPV.get((nombre || '').trim().toLowerCase()) || 0;
             let contenido = '';
 
             const filaTabla = (cols) => '<tr>' + cols.map(c => `<td style="padding: 10px; border: 1px solid #ddd;">${c}</td>`).join('') + '</tr>';
@@ -5748,7 +5850,7 @@
 
             if(tipo === 'inventarioActual') {
                 const filas = catalogo
-                    .map(p => ({ nombre: p.nombre, sku: p.sku, unidad: p.unidad || 'piezas', neto: calcularStockProducto(p.nombre) }))
+                    .map(p => ({ nombre: p.nombre, sku: p.sku, unidad: p.unidad || 'piezas', neto: stockDe(p.nombre) }))
                     .sort((a, b) => b.neto - a.neto)
                     .map(p => filaTabla([escaparHtmlSimple(p.nombre), `${p.neto} ${p.unidad}`, escaparHtmlSimple(p.sku || '-')]))
                     .join('');
@@ -5775,7 +5877,7 @@
 
             } else if(tipo === 'productosAltos') {
                 const altos = catalogo
-                    .map(p => ({ nombre: p.nombre, sku: p.sku, unidad: p.unidad || 'piezas', neto: calcularStockProducto(p.nombre) }))
+                    .map(p => ({ nombre: p.nombre, sku: p.sku, unidad: p.unidad || 'piezas', neto: stockDe(p.nombre) }))
                     .filter(p => p.neto >= 50)
                     .sort((a, b) => b.neto - a.neto);
 
@@ -5790,7 +5892,7 @@
                 const bajos = catalogo
                     .map(p => {
                         const minimo = (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo;
-                        return { nombre: p.nombre, sku: p.sku, unidad: p.unidad || 'piezas', neto: calcularStockProducto(p.nombre), minimo };
+                        return { nombre: p.nombre, sku: p.sku, unidad: p.unidad || 'piezas', neto: stockDe(p.nombre), minimo };
                     })
                     .filter(p => p.neto <= p.minimo)
                     // Mismo criterio de urgencia que el Dashboard: % del mínimo que queda
@@ -5853,7 +5955,7 @@
                             nombre: p.nombre, sku: p.sku, unidad: p.unidad || 'piezas',
                             s30, s90,
                             promedioDiario: Math.round((s90 / 90) * 100) / 100,
-                            stock: calcularStockProducto(p.nombre)
+                            stock: stockDe(p.nombre)
                         };
                     })
                     .filter(p => p.s90 > 0)
@@ -5910,13 +6012,14 @@
             }
 
             const soloDisponibles = localStorage.getItem('soloDisponiblesReportes') !== '0';
+            const mapaStockPV = construirMapaStockPuntoVenta();
 
             let productos = catalogo
                 .filter(p => (p.sku || '').trim())
                 .map(p => ({
                     nombre: p.nombre,
                     sku: p.sku,
-                    cantidad: calcularStockProducto(p.nombre)
+                    cantidad: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0
                 }));
 
             if(soloDisponibles) {
@@ -5982,11 +6085,12 @@
             const escaparHtml = (texto) => String(texto)
                 .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+            const mapaStockPV = construirMapaStockPuntoVenta();
             let lista = catalogo
                 .map(p => ({
                     nombre: p.nombre,
                     unidad: p.unidad || 'piezas',
-                    cantidad: calcularStockProducto(p.nombre),
+                    cantidad: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0,
                     minimo: (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo
                 }))
                 .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
@@ -6113,11 +6217,12 @@
                 return;
             }
 
+            const mapaStockPV = construirMapaStockPuntoVenta();
             let lista = catalogo
                 .map(p => ({
                     nombre: p.nombre,
                     unidad: p.unidad || 'piezas',
-                    cantidad: calcularStockProducto(p.nombre),
+                    cantidad: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0,
                     minimo: (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo
                 }))
                 .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
@@ -7139,7 +7244,17 @@
         // ===== ALMACÉN PRINCIPAL (bodega separada) =====
         // Busca el producto correspondiente en el catálogo (Punto de Venta / "Almacén de Piso
         // de Venta"), primero por SKU y si no por nombre, y devuelve su stock actual calculado.
-        function obtenerProductoCatalogoPara(pAlmacenPrincipal) {
+        // mapaProductosCatalogo (opcional) es el resultado de construirMapaProductosPorNombreYSku():
+        // si se pasa, la búsqueda es O(1) en vez de releer y recorrer todo el catálogo.
+        // Se usa así en pantallas que llaman esta función muchas veces seguidas
+        // (Almacén Principal, Pedidos); en el resto de los casos (una sola llamada
+        // suelta) se puede seguir llamando sin ese segundo argumento, igual que antes.
+        function obtenerProductoCatalogoPara(pAlmacenPrincipal, mapaProductosCatalogo) {
+            if(mapaProductosCatalogo) {
+                const skuUpper = (pAlmacenPrincipal.sku || '').trim().toUpperCase();
+                if(skuUpper && mapaProductosCatalogo.porSku.has(skuUpper)) return mapaProductosCatalogo.porSku.get(skuUpper);
+                return mapaProductosCatalogo.porNombre.get(pAlmacenPrincipal.nombre.trim().toLowerCase()) || null;
+            }
             const productos = cargarProductos();
             let producto = null;
             if(pAlmacenPrincipal.sku && pAlmacenPrincipal.sku.trim()) {
@@ -7149,8 +7264,8 @@
             return producto;
         }
 
-        function obtenerStockPuntoVentaPara(pAlmacenPrincipal, mapaStockPV) {
-            const producto = obtenerProductoCatalogoPara(pAlmacenPrincipal);
+        function obtenerStockPuntoVentaPara(pAlmacenPrincipal, mapaStockPV, mapaProductosCatalogo) {
+            const producto = obtenerProductoCatalogoPara(pAlmacenPrincipal, mapaProductosCatalogo);
             if(!producto) return null;
             if(mapaStockPV) return mapaStockPV.get(producto.nombre.trim().toLowerCase()) || 0;
             return calcularStockProducto(producto.nombre);
@@ -7193,8 +7308,14 @@
                 return;
             }
 
+            // Este render corre en cada tecla del buscador de esta pestaña: se arma el
+            // índice del catálogo una sola vez en vez de que obtenerStockPuntoVentaPara
+            // vuelva a leer y recorrer los 680+ productos por cada tarjeta visible.
+            const mapaStockPV = construirMapaStockPuntoVenta();
+            const mapaProductosCatalogo = construirMapaProductosPorNombreYSku(cargarProductos());
+
             cont.innerHTML = filtrados.map(p => {
-                const stockPV = obtenerStockPuntoVentaPara(p);
+                const stockPV = obtenerStockPuntoVentaPara(p, mapaStockPV, mapaProductosCatalogo);
                 const piso = obtenerPisoVentaPara(p);
                 let estado, etiqueta;
                 if(stockPV === null) {
@@ -8166,7 +8287,8 @@
             }
 
             if(localStorage.getItem('ocultarAgotadosConteo') !== '0') {
-                catalogo = catalogo.filter(p => calcularStockProducto(p.nombre) > 0);
+                const mapaStockPV = construirMapaStockPuntoVenta();
+                catalogo = catalogo.filter(p => (mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0) > 0);
             }
 
             const data = cargarConteoAlmacen();
@@ -8235,7 +8357,11 @@
         function actualizarProgresoConteoAlmacen() {
             let catalogo = cargarProductos();
             if(localStorage.getItem('ocultarAgotadosConteo') !== '0') {
-                catalogo = catalogo.filter(p => calcularStockProducto(p.nombre) > 0);
+                // Esto se llama tras cada tecla escrita al contar: con el mapa de una
+                // sola pasada en vez de calcularStockProducto() por producto, escribir
+                // la cantidad ya no se siente pesado cuando hay muchos productos.
+                const mapaStockPV = construirMapaStockPuntoVenta();
+                catalogo = catalogo.filter(p => (mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0) > 0);
             }
             const data = cargarConteoAlmacen();
             const contados = Object.keys(data.conteos).filter(nombre => catalogo.some(p => p.nombre === nombre)).length;
@@ -8732,13 +8858,14 @@
 
         function generarCodigoCatalogoTexto() {
             const catalogo = cargarProductos();
+            const mapaStockPV = construirMapaStockPuntoVenta();
             const productos = catalogo.map(p => ({
                 n: p.nombre,
                 s: p.sku || '',
                 c: p.categoria || 'Sin categoría',
                 u: p.unidad || 'piezas',
                 m: (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo,
-                q: calcularStockProducto(p.nombre)
+                q: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0
             }));
             const payload = { v: 1, fecha: new Date().toISOString(), productos };
             // btoa no soporta acentos/ñ directamente: se pasa primero por UTF-8 (encodeURIComponent + unescape)
@@ -8869,12 +8996,13 @@
             const totalEntradas = movimientos.filter(m => m.tipo === 'entrada').reduce((a, b) => a + b.cantidad, 0);
             const totalSalidas = movimientos.filter(m => m.tipo === 'salida').reduce((a, b) => a + b.cantidad, 0);
 
+            const mapaStockPV = construirMapaStockPuntoVenta();
             const productosConStock = catalogo
                 .map(p => ({
                     nombre: p.nombre,
                     sku: p.sku || '-',
                     unidad: p.unidad || 'piezas',
-                    cantidad: calcularStockProducto(p.nombre),
+                    cantidad: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0,
                     minimo: (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo
                 }))
                 .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
@@ -9469,6 +9597,7 @@
 
             const buscadorEl = document.getElementById('pedidoCatalogoBuscador');
             if(buscadorEl) buscadorEl.value = '';
+            pedidoNuevoLimiteVisible = 60;
 
             // Agregar/editar/eliminar productos "a mano" solo tiene sentido para el
             // Almacén Principal: el catálogo del Punto de Venta se administra en la
@@ -9476,6 +9605,13 @@
             const btnAgregar = document.getElementById('btnAgregarProductoAlmacenPrincipalPedido');
             if(btnAgregar) btnAgregar.style.display = origen === 'almacenPrincipal' ? '' : 'none';
 
+            renderizarCatalogoPedidoNuevo();
+        }
+
+        // Botón "Ver más productos" del catálogo de Pedidos: suma 60 tarjetas más a lo
+        // ya visible y vuelve a pintar, sin necesitar el buscador.
+        function verMasCatalogoPedidoNuevo() {
+            pedidoNuevoLimiteVisible += 60;
             renderizarCatalogoPedidoNuevo();
         }
 
@@ -9487,6 +9623,12 @@
         // de que se haya importado el Excel del Punto de Venta; si no, se avisa en la
         // propia tarjeta. No toca el stock: solo lee para mostrar. Se limita a 60
         // resultados para no recargar el teléfono con las ~680 tarjetas de una vez.
+        // Cuántas tarjetas se muestran cuando NO hay búsqueda activa. Empieza en 60 y
+        // crece de 60 en 60 cada vez que José toca "Ver más productos" (ver
+        // verMasCatalogoPedidoNuevo). Se reinicia a 60 al cambiar de origen o de
+        // búsqueda para no arrancar siempre mostrando todo el catálogo.
+        let pedidoNuevoLimiteVisible = 60;
+
         function renderizarCatalogoPedidoNuevo() {
             const cont = document.getElementById('catalogoPedidoNuevo');
             if(!cont) return;
@@ -9498,6 +9640,12 @@
             // construirMapaStockPuntoVenta) en vez de producto por producto, que era lo
             // que hacía tardar esta pestaña con el catálogo grande.
             const mapaStockPV = construirMapaStockPuntoVenta();
+            // Solo hace falta cuando el origen es Almacén Principal (para encontrar el
+            // producto correspondiente del catálogo de Punto de Venta); se arma una vez
+            // aquí en vez de que cada tarjeta/comparación vuelva a leer y recorrer los
+            // 680+ productos por su cuenta (eso era lo que ponía lenta esta pantalla,
+            // sobre todo con "Ordenar por urgencia" activado).
+            const mapaProductosCatalogo = pedidoNuevoOrigen === 'almacenPrincipal' ? construirMapaProductosPorNombreYSku(cargarProductos()) : null;
 
             const catalogoCompleto = (pedidoNuevoOrigen === 'almacenPrincipal' ? cargarAlmacenPrincipal() : cargarProductos())
                 .map((p, idx) => ({ ...p, idx }));
@@ -9516,8 +9664,8 @@
             const ordenUrgencia = localStorage.getItem('pedidoOrdenUrgencia') === '1';
             if(ordenUrgencia) {
                 filtrados = filtrados.slice().sort((a, b) => {
-                    const uA = calcularUrgenciaPedido(a, mapaStockPV);
-                    const uB = calcularUrgenciaPedido(b, mapaStockPV);
+                    const uA = calcularUrgenciaPedido(a, mapaStockPV, mapaProductosCatalogo);
+                    const uB = calcularUrgenciaPedido(b, mapaStockPV, mapaProductosCatalogo);
                     if(uA !== uB) return uA - uB; // más urgente (número más bajo/negativo) primero
                     return a.nombre.localeCompare(b.nombre);
                 });
@@ -9532,13 +9680,28 @@
                 return;
             }
 
+            // Se limita a pedidoNuevoLimiteVisible tarjetas (arranca en 60) para no
+            // recargar el teléfono con las ~680 de una vez, solo cuando no hay búsqueda
+            // activa (si el usuario ya buscó/filtró, el resultado suele ser chico y no
+            // hace falta recortarlo). Además del buscador, un botón "Ver más productos"
+            // deja seguir viendo el resto sin tener que escribir nada.
+            const totalFiltrados = filtrados.length;
+            let avisoLimite = '';
+            if(!q && totalFiltrados > pedidoNuevoLimiteVisible) {
+                filtrados = filtrados.slice(0, pedidoNuevoLimiteVisible);
+                avisoLimite = `
+                    <p style="text-align:center; color:#999; font-size:12px; padding:10px 4px 4px;">Mostrando ${pedidoNuevoLimiteVisible} de ${totalFiltrados} productos${ordenUrgencia ? ' (los más urgentes primero)' : ''}.</p>
+                    <button type="button" class="btn btn-secondary" style="display:block; margin:0 auto 10px;" onclick="verMasCatalogoPedidoNuevo()">⬇️ Ver más productos</button>
+                `;
+            }
+
             cont.innerHTML = filtrados.map(p => {
                 let filasQty, cantidadOrigen;
                 const piso = obtenerPisoVentaPara(p);
                 // El mínimo configurado es el del producto del catálogo (Almacén Punto de
                 // Venta); si se está armando desde Almacén Principal, p es el ítem de esa
                 // bodega y hay que buscar su producto correspondiente para tomar su mínimo.
-                const productoParaMinimo = pedidoNuevoOrigen === 'almacenPrincipal' ? obtenerProductoCatalogoPara(p) : p;
+                const productoParaMinimo = pedidoNuevoOrigen === 'almacenPrincipal' ? obtenerProductoCatalogoPara(p, mapaProductosCatalogo) : p;
                 const minimoPiso = productoParaMinimo ? ((productoParaMinimo.stockMinimo === undefined || productoParaMinimo.stockMinimo === null) ? 10 : productoParaMinimo.stockMinimo) : 10;
                 let pisoTexto;
                 if(piso === undefined) pisoTexto = '<span style="color:#bbb; font-size:11px;">Importa Excel del Punto de Venta</span>';
@@ -9549,7 +9712,7 @@
                 }
 
                 if(pedidoNuevoOrigen === 'almacenPrincipal') {
-                    const stockPV = obtenerStockPuntoVentaPara(p, mapaStockPV);
+                    const stockPV = obtenerStockPuntoVentaPara(p, mapaStockPV, mapaProductosCatalogo);
                     cantidadOrigen = p.cantidad;
                     filasQty = `
                         <div class="cmp-qty"><span class="cmp-qty-label">Almacén Principal</span><span class="cmp-qty-val">${p.cantidad}</span></div>
@@ -9608,7 +9771,7 @@
                         </div>
                     </div>
                 `;
-            }).join('');
+            }).join('') + avisoLimite;
         }
 
         // Qué tan urgente es reponer un producto: mientras más bajo (o más negativo) el
@@ -9616,14 +9779,14 @@
         // llegar la mercancía), no en el almacén de origen desde donde se pide, porque lo
         // que importa es qué se está acabando donde se vende, no cuánto queda en la
         // bodega de la que se saca.
-        function calcularUrgenciaPedido(p, mapaStockPV) {
+        function calcularUrgenciaPedido(p, mapaStockPV, mapaProductosCatalogo) {
             if(pedidoNuevoOrigen === 'almacenPrincipal') {
                 // Desde Almacén Principal se puede ir a Almacén Punto de Venta o directo a
                 // Piso de Venta (se elige por producto al armar el pedido), así que se toma
                 // el más urgente de los dos destinos posibles.
-                const productoDestino = obtenerProductoCatalogoPara(p);
+                const productoDestino = obtenerProductoCatalogoPara(p, mapaProductosCatalogo);
                 const minimo = productoDestino ? ((productoDestino.stockMinimo === undefined || productoDestino.stockMinimo === null) ? 10 : productoDestino.stockMinimo) : 10;
-                const stockPV = obtenerStockPuntoVentaPara(p, mapaStockPV);
+                const stockPV = obtenerStockPuntoVentaPara(p, mapaStockPV, mapaProductosCatalogo);
                 const piso = obtenerPisoVentaPara(p);
                 const candidatos = [];
                 if(stockPV !== null) candidatos.push(stockPV - minimo);
