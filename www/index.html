@@ -10,6 +10,13 @@
          onerror cambia el src al CDN como respaldo. -->
     <script src="vendor/chart.min.js" defer onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js';"></script>
     <!-- El SDK de xlsx se carga dinámicamente solo cuando hace falta, ver función cargarSDKExcel() más abajo. -->
+    <!-- jsPDF + autoTable: generan el PDF de verdad en JavaScript (ya no dependen del
+         diálogo de impresión de Android, que dentro del APK casi nunca deja guardar
+         nada). Mismo esquema que chart.min.js: copia local agregada al compilar en
+         GitHub Actions (con internet garantizado) y, si falta, respaldo por CDN para
+         cuando se prueba el index.html suelto en un navegador con internet. -->
+    <script src="vendor/jspdf.umd.min.js" defer onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.3/jspdf.umd.min.js';"></script>
+    <script src="vendor/jspdf.plugin.autotable.min.js" defer onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/5.0.2/jspdf.plugin.autotable.min.js';"></script>
     <style>
         * {
             margin: 0;
@@ -186,6 +193,23 @@
             font-size: 13px;
             text-align: center;
             padding: 14px 4px;
+        }
+        /* Pestañas Todas/Críticas/Advertencias/Info del panel de notificaciones. */
+        .chip-filtro-notif {
+            border: 1px solid #ddd;
+            background: #fff;
+            color: #555;
+            border-radius: 999px;
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .chip-filtro-notif.activo {
+            background: #5b3fc9;
+            border-color: #5b3fc9;
+            color: #fff;
         }
 
         /* Toast global de confirmación al guardar/exportar un archivo (CSV, JSON,
@@ -1787,6 +1811,15 @@
         <!-- Panel desplegable: notificaciones (bajo stock). Se llena desde actualizarDashboard(). -->
         <div id="panelNotificaciones" class="header-panel" style="display:none;">
             <div class="header-panel-titulo">⚠️ Productos con Bajo Stock <span id="contadorBajoStock" style="font-size: 13px; font-weight: normal; color: #f44336;"></span></div>
+            <!-- Pestañas de importancia: Críticas (agotado/crítico) primero, luego
+                 Advertencias (bajo mínimo) e Info. El JS decide qué botón queda
+                 resaltado y filtra la lista de abajo sin volver a calcular nada. -->
+            <div id="filtrosNotif" class="filtros-notif" style="display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 10px;">
+                <button type="button" class="chip-filtro-notif activo" data-filtro="todas" onclick="filtrarNotificaciones('todas')">Todas</button>
+                <button type="button" class="chip-filtro-notif" data-filtro="critica" onclick="filtrarNotificaciones('critica')">🔴 Críticas</button>
+                <button type="button" class="chip-filtro-notif" data-filtro="advertencia" onclick="filtrarNotificaciones('advertencia')">🟡 Advertencias</button>
+                <button type="button" class="chip-filtro-notif" data-filtro="info" onclick="filtrarNotificaciones('info')">🔵 Info</button>
+            </div>
             <div id="bajoStock" class="top-products"></div>
         </div>
 
@@ -4989,6 +5022,89 @@
             if(sync) sync.style.display = 'none';
         }
 
+        // Notificaciones por importancia (pestañas Todas/Críticas/Advertencias/Info,
+        // como en MypiCuadre). _ultimasNotificaciones se llena en actualizarDashboard()
+        // cada vez que se recalcula el bajo stock; filtrarNotificaciones() solo cambia
+        // qué pestaña está resaltada y vuelve a pintar la lista con lo que ya hay,
+        // sin recalcular nada.
+        let _ultimasNotificaciones = [];
+        let _filtroNotifActivo = 'todas';
+
+        // Misma regla de urgencia que ya usaba cada tarjeta: 0% o menos = Agotado
+        // (Crítica), 30% o menos del mínimo = Crítico (también Crítica), el resto
+        // que sigue por debajo del mínimo = Advertencia. Info queda para avisos que
+        // no son de stock (por ahora no genera ninguno aquí, pero la pestaña ya
+        // queda lista para cuando se agregue, p.ej. avisos de sincronización).
+        function categoriaNotificacion([, , minimo, cantidad]) {
+            if(cantidad <= 0) return 'critica';
+            return (cantidad / Math.max(minimo, 1)) <= 0.3 ? 'critica' : 'advertencia';
+        }
+
+        function filtrarNotificaciones(filtro) {
+            _filtroNotifActivo = filtro;
+            document.querySelectorAll('#filtrosNotif .chip-filtro-notif').forEach(chip => {
+                chip.classList.toggle('activo', chip.dataset.filtro === filtro);
+            });
+            renderNotificaciones(filtro);
+        }
+
+        function renderNotificaciones(filtro) {
+            const contenedor = document.getElementById('bajoStock');
+            if(!contenedor) return;
+            const lista = filtro === 'todas'
+                ? _ultimasNotificaciones
+                : _ultimasNotificaciones.filter(fila => categoriaNotificacion(fila) === filtro);
+
+            if(lista.length === 0) {
+                contenedor.innerHTML = filtro === 'todas'
+                    ? '<p style="color: #999;">No hay productos con bajo stock</p>'
+                    : '<p class="header-panel-vacio">Sin avisos con este filtro.</p>';
+                return;
+            }
+
+            contenedor.innerHTML = lista.map(([prod, s, minimo, cantidad, usaPiso, reposicion]) => {
+                // Mismo criterio que el orden: % del mínimo que queda. Se muestra como
+                // etiqueta para que se note por qué unos aparecen antes que otros.
+                const ratioUrgencia = cantidad / Math.max(minimo, 1);
+                const urgencia = cantidad <= 0
+                    ? { texto: '🔴 Agotado', color: '#d32f2f' }
+                    : ratioUrgencia <= 0.3
+                        ? { texto: '🟠 Crítico', color: '#f57c00' }
+                        : { texto: '🟡 Bajo', color: '#fbc02d' };
+                const bannerReposicion = reposicion.length > 0 ? `
+                    <div style="background:#e8f9ee; border-left:3px solid #25d366; border-radius:8px; padding:8px 10px; margin-top:8px; font-size:12px;">
+                        <div style="font-weight:bold; color:#1a8a4a; margin-bottom:4px;">✅ Hay para reponer:</div>
+                        ${reposicion.map(r => `
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-top:3px;">
+                                <span>${escaparHtmlSimple(r.label)}: <strong>${r.cantidad}</strong></span>
+                                <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:11px;" onclick="irATransferirDesdeAlerta('${escaparParaOnclick(prod)}', '${r.value}')">🔀 Transferir</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : '';
+                return `
+                <div class="product-card low-stock">
+                    <div class="product-name" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                        <span>⚠️ ${prod}</span>
+                        <span style="font-size:11px; font-weight:bold; color:${urgencia.color}; white-space:nowrap;">${urgencia.texto}</span>
+                    </div>
+                    <div class="metric">
+                        <span>${usaPiso ? 'Piso de Venta:' : 'Almacén Punto de Venta:'}</span>
+                        <strong>${cantidad} ${s.unidad}</strong>
+                    </div>
+                    <div class="metric">
+                        <span>SKU:</span>
+                        <strong>${s.referencia || 'N/A'}</strong>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${Math.min(cantidad / Math.max(minimo, 1) * 100, 100)}%"></div>
+                    </div>
+                    ${bannerReposicion}
+                </div>
+            `;
+            }).join('');
+        }
+
         function alternarPanelNotificaciones() {
             const panel = document.getElementById('panelNotificaciones');
             if(!panel) return;
@@ -5260,7 +5376,14 @@
                 // 3) Por último, urgencia real: qué porcentaje de su propio mínimo le
                 //    queda (0% = agotado va primero, no la cantidad en bruto, para no
                 //    favorecer injustamente a los de mínimo bajo).
+                // Orden por IMPORTANCIA primero (como en MypiCuadre: Crítica antes que
+                // Advertencia), y solo entre productos de la misma importancia se usan
+                // los criterios de antes (Piso de Venta primero, luego los que ya se
+                // pueden reponer, luego cuánto % de su mínimo les queda).
                 .sort((a, b) => {
+                    const rangoA = a[3] <= 0 ? 0 : (a[3] / Math.max(a[2], 1) <= 0.3 ? 1 : 2);
+                    const rangoB = b[3] <= 0 ? 0 : (b[3] / Math.max(b[2], 1) <= 0.3 ? 1 : 2);
+                    if(rangoA !== rangoB) return rangoA - rangoB;
                     const grupoA = a[4] ? 0 : 1; // a[4] = usaPiso
                     const grupoB = b[4] ? 0 : 1;
                     if(grupoA !== grupoB) return grupoA - grupoB;
@@ -5285,48 +5408,11 @@
                 }
             }
 
-            document.getElementById('bajoStock').innerHTML = bajoStock.length > 0 ? 
-                bajoStock.map(([prod, s, minimo, cantidad, usaPiso, reposicion]) => {
-                    // Mismo criterio que el orden: % del mínimo que queda. Se muestra como
-                    // etiqueta para que se note por qué unos aparecen antes que otros.
-                    const ratioUrgencia = cantidad / Math.max(minimo, 1);
-                    const urgencia = cantidad <= 0
-                        ? { texto: '🔴 Agotado', color: '#d32f2f' }
-                        : ratioUrgencia <= 0.3
-                            ? { texto: '🟠 Crítico', color: '#f57c00' }
-                            : { texto: '🟡 Bajo', color: '#fbc02d' };
-                    const bannerReposicion = reposicion.length > 0 ? `
-                        <div style="background:#e8f9ee; border-left:3px solid #25d366; border-radius:8px; padding:8px 10px; margin-top:8px; font-size:12px;">
-                            <div style="font-weight:bold; color:#1a8a4a; margin-bottom:4px;">✅ Hay para reponer:</div>
-                            ${reposicion.map(r => `
-                                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-top:3px;">
-                                    <span>${escaparHtmlSimple(r.label)}: <strong>${r.cantidad}</strong></span>
-                                    <button type="button" class="btn btn-secondary" style="padding:3px 8px; font-size:11px;" onclick="irATransferirDesdeAlerta('${escaparParaOnclick(prod)}', '${r.value}')">🔀 Transferir</button>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : '';
-                    return `
-                    <div class="product-card low-stock">
-                        <div class="product-name" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-                            <span>⚠️ ${prod}</span>
-                            <span style="font-size:11px; font-weight:bold; color:${urgencia.color}; white-space:nowrap;">${urgencia.texto}</span>
-                        </div>
-                        <div class="metric">
-                            <span>${usaPiso ? 'Piso de Venta:' : 'Almacén Punto de Venta:'}</span>
-                            <strong>${cantidad} ${s.unidad}</strong>
-                        </div>
-                        <div class="metric">
-                            <span>SKU:</span>
-                            <strong>${s.referencia || 'N/A'}</strong>
-                        </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${Math.min(cantidad / Math.max(minimo, 1) * 100, 100)}%"></div>
-                        </div>
-                        ${bannerReposicion}
-                    </div>
-                `;
-                }).join('') : '<p style="color: #999;">No hay productos con bajo stock</p>';
+            // Se guarda la lista completa (ya ordenada por importancia) para que las
+            // pestañas Todas/Críticas/Advertencias/Info puedan filtrar sin tener que
+            // recalcular el stock de nuevo — ver filtrarNotificaciones() más abajo.
+            _ultimasNotificaciones = bajoStock;
+            renderNotificaciones(_filtroNotifActivo);
 
             // Productos más movidos (últimos 30 días)
             const masMovidos = movimientos
@@ -5910,54 +5996,22 @@
                 }
             }
 
-            const filas = lista.map(p => {
-                const clase = p.cantidad <= p.minimo ? 'bajo' : 'ok';
-                return `<div class="fila">
-                    <div class="nombre">${escaparHtml(p.nombre)}</div>
-                    <div class="cantidad ${clase}">${p.cantidad} ${escaparHtml(p.unidad)}</div>
-                </div>`;
-            }).join('');
-
             const fechaTexto = new Date().toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
-            const tituloTexto = soloReposicion ? '🔴 Falta reponer' : '📦 Inventario — Stock actual';
+            const tituloTexto = soloReposicion ? 'Falta reponer' : 'Inventario — Stock actual';
 
-            const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Inventario ${fechaTexto}</title>
-<style>
-    @page { margin: 8mm; }
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: -apple-system, Roboto, Arial, sans-serif; margin: 0; padding: 0; color: #222; background: #fff; }
-    .header { background: linear-gradient(135deg, #7b5fe0, #5b3fc9); color: #fff; padding: 22px 20px; }
-    .header h1 { margin: 0; font-size: 36px; }
-    .header p { margin: 8px 0 0; font-size: 21px; opacity: 0.92; }
-    .lista { padding: 4px 16px 30px; }
-    .fila { display: flex; justify-content: space-between; align-items: center; padding: 20px 2px; border-bottom: 2px solid #eee; }
-    .nombre { font-size: 30px; font-weight: 600; color: #222; flex: 1; padding-right: 14px; line-height: 1.25; }
-    .cantidad { font-size: 30px; font-weight: 700; white-space: nowrap; }
-    .cantidad.ok { color: #1a9e4f; }
-    .cantidad.bajo { color: #d32f2f; }
-    @media print { .fila { break-inside: avoid; } }
-</style>
-</head>
-<body>
-    <div class="header">
-        <h1>${tituloTexto}</h1>
-        <p>Generado: ${fechaTexto} · ${lista.length} productos</p>
-    </div>
-    <div class="lista">${filas}</div>
-</body>
-</html>`;
-
-            // Antes esto abría una window.open('', '_blank') y llamaba print() sobre esa
-            // ventana nueva. Dentro del APK compilado (Capacitor), esa ventana nueva no
-            // tiene ningún control para volver atrás, así que la persona quedaba atrapada
-            // viendo la lista en blanco después de cerrar el diálogo de impresión, y tenía
-            // que forzar el cierre de la app. imprimirHTMLenIframe() dispara el mismo
-            // diálogo "Guardar como PDF" pero sin salir nunca de la pantalla actual.
-            imprimirHTMLenIframe(html);
+            // Antes esto armaba un HTML y llamaba a imprimirHTMLenIframe(), que dispara
+            // window.print(): dentro del APK compilado (Capacitor) ese diálogo casi nunca
+            // llega a guardar nada. generarPDFTabla() arma el PDF de verdad con jsPDF y lo
+            // guarda con el mismo mecanismo confiable que ya usan el JSON y el Excel
+            // (descargarArchivo: plugin nativo FileSaver -> Compartir -> descarga).
+            generarPDFTabla({
+                titulo: tituloTexto,
+                subtitulo: `Generado: ${fechaTexto} · ${lista.length} productos`,
+                columnas: ['Producto', 'Cantidad'],
+                filas: lista.map(p => [p.nombre, `${p.cantidad} ${p.unidad}`]),
+                filaBaja: (i) => lista[i].cantidad <= lista[i].minimo,
+                nombreArchivo: `inventario_${soloReposicion ? 'reponer' : 'stock'}_${Date.now()}.pdf`
+            });
         }
 
         // Imprime un HTML (para "Guardar como PDF") usando un <iframe> oculto en vez de
@@ -8549,6 +8603,58 @@
         //      Android, pero casi nunca escribe nada dentro de un WebView empaquetado.
         // En los tres casos se confirma con el toast global (mostrarToastGlobal), que
         // se ve sin importar en qué pestaña esté José, a diferencia de mostrarMensaje().
+        // Arma un PDF de verdad con jsPDF + autoTable (encabezado morado + tabla) y lo
+        // guarda con descargarArchivo(), que ya tiene el camino confiable dentro del APK
+        // (plugin nativo FileSaver -> Compartir -> descarga). No depende del diálogo de
+        // impresión de Android, que dentro de un WebView de Capacitor casi nunca guarda
+        // nada de verdad.
+        //   titulo, subtitulo: texto del encabezado.
+        //   columnas: array de nombres de columna.
+        //   filas: array de arrays (una fila por producto).
+        //   filaBaja(i): opcional, función que recibe el índice de fila y devuelve true
+        //                si esa fila debe pintarse en rojo (bajo stock / a reponer).
+        //   nombreArchivo: nombre del .pdf a guardar.
+        function generarPDFTabla({ titulo, subtitulo, columnas, filas, filaBaja, nombreArchivo }) {
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                mostrarToastGlobal('⏳ El módulo de PDF todavía se está cargando. Esperá un segundo e inténtalo de nuevo.', 'error');
+                return;
+            }
+            try {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+                const anchoPagina = doc.internal.pageSize.getWidth();
+
+                doc.setFillColor(91, 63, 201);
+                doc.rect(0, 0, anchoPagina, 64, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(17);
+                doc.text(String(titulo || ''), 28, 28);
+                doc.setFontSize(9);
+                doc.text(String(subtitulo || ''), 28, 46, { maxWidth: anchoPagina - 56 });
+
+                doc.autoTable({
+                    startY: 80,
+                    head: [columnas],
+                    body: filas,
+                    margin: { left: 20, right: 20 },
+                    styles: { fontSize: 10, cellPadding: 6 },
+                    headStyles: { fillColor: [91, 63, 201], textColor: 255 },
+                    alternateRowStyles: { fillColor: [246, 246, 250] },
+                    didParseCell: (data) => {
+                        if (data.section === 'body' && typeof filaBaja === 'function' && filaBaja(data.row.index)) {
+                            data.cell.styles.textColor = [211, 47, 47];
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    }
+                });
+
+                descargarArchivo(doc.output('arraybuffer'), nombreArchivo || `documento_${Date.now()}.pdf`, 'application/pdf');
+            } catch (err) {
+                console.error('Error generando PDF:', err);
+                mostrarToastGlobal('⚠️ No se pudo generar el PDF. Revisa que vendor/jspdf.umd.min.js y vendor/jspdf.plugin.autotable.min.js estén en el proyecto.', 'error');
+            }
+        }
+
         async function descargarArchivo(contenido, nombre, tipo) {
             const blob = new Blob([contenido], { type: tipo });
 
@@ -8629,9 +8735,9 @@
 
         // Antes este botón solo descargaba el mismo JSON de "Exportar JSON" con la
         // etiqueta "PDF" puesta encima — no generaba ningún PDF de verdad. Ahora arma
-        // un reporte real (resumen + inventario completo) y usa el mismo mecanismo de
-        // impresión que ya usan los botones de "PDF de stock actual" (abre el diálogo
-        // nativo "Guardar como PDF" sin salir de la app).
+        // un reporte real (resumen + inventario completo) con jsPDF y lo guarda con
+        // descargarArchivo() (plugin nativo FileSaver -> Compartir -> descarga), en vez
+        // de depender del diálogo de impresión de Android.
         function generarReporteCompleto() {
             const movimientos = cargarDatos();
             const catalogo = cargarProductos();
@@ -8656,65 +8762,16 @@
                 .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
 
             const bajoStock = productosConStock.filter(p => p.cantidad <= p.minimo);
-
-            const escaparHtml = (texto) => String(texto)
-                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const fechaTexto = new Date().toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
 
-            const filasInventario = productosConStock.map(p => `
-                <tr class="${p.cantidad <= p.minimo ? 'bajo' : ''}">
-                    <td>${escaparHtml(p.nombre)}</td>
-                    <td>${escaparHtml(p.sku)}</td>
-                    <td style="text-align:right;">${p.cantidad} ${escaparHtml(p.unidad)}</td>
-                    <td style="text-align:right;">${p.minimo}</td>
-                </tr>
-            `).join('');
-
-            const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Reporte completo ${fechaTexto}</title>
-<style>
-    @page { margin: 10mm; }
-    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    body { font-family: -apple-system, Roboto, Arial, sans-serif; margin: 0; padding: 0; color: #222; }
-    .header { background: linear-gradient(135deg, #7b5fe0, #5b3fc9); color: #fff; padding: 20px; }
-    .header h1 { margin: 0; font-size: 26px; }
-    .header p { margin: 6px 0 0; font-size: 13px; opacity: 0.9; }
-    .stats { display: flex; gap: 10px; padding: 16px 20px; flex-wrap: wrap; }
-    .stat { background: #f5f5f5; border-radius: 10px; padding: 10px 14px; flex: 1; min-width: 110px; }
-    .stat .label { font-size: 11px; color: #777; }
-    .stat .value { font-size: 20px; font-weight: bold; }
-    h2 { font-size: 16px; margin: 18px 20px 6px; }
-    table { width: calc(100% - 40px); margin: 0 20px 20px; border-collapse: collapse; font-size: 12px; }
-    th, td { padding: 6px 8px; border-bottom: 1px solid #eee; text-align: left; }
-    th { background: #f0f0f0; }
-    tr.bajo td { color: #d32f2f; font-weight: bold; }
-    @media print { tr { break-inside: avoid; } }
-</style>
-</head>
-<body>
-    <div class="header">
-        <h1>📊 Reporte Completo de Inventario</h1>
-        <p>Generado: ${fechaTexto}</p>
-    </div>
-    <div class="stats">
-        <div class="stat"><div class="label">Movimientos</div><div class="value">${movimientos.length}</div></div>
-        <div class="stat"><div class="label">Entradas</div><div class="value" style="color:#4caf50;">${totalEntradas}</div></div>
-        <div class="stat"><div class="label">Salidas</div><div class="value" style="color:#f44336;">${totalSalidas}</div></div>
-        <div class="stat"><div class="label">Productos</div><div class="value">${catalogo.length}</div></div>
-        <div class="stat"><div class="label">Bajo mínimo</div><div class="value" style="color:#ff9800;">${bajoStock.length}</div></div>
-    </div>
-    <h2>📦 Inventario completo (${productosConStock.length} productos)</h2>
-    <table>
-        <thead><tr><th>Producto</th><th>SKU</th><th style="text-align:right;">Stock</th><th style="text-align:right;">Mínimo</th></tr></thead>
-        <tbody>${filasInventario}</tbody>
-    </table>
-</body>
-</html>`;
-
-            imprimirHTMLenIframe(html);
+            generarPDFTabla({
+                titulo: 'Reporte Completo de Inventario',
+                subtitulo: `Generado: ${fechaTexto} · Movimientos: ${movimientos.length} · Entradas: ${totalEntradas} · Salidas: ${totalSalidas} · Bajo mínimo: ${bajoStock.length}`,
+                columnas: ['Producto', 'SKU', 'Stock', 'Mínimo'],
+                filas: productosConStock.map(p => [p.nombre, p.sku, `${p.cantidad} ${p.unidad}`, String(p.minimo)]),
+                filaBaja: (i) => productosConStock[i].cantidad <= productosConStock[i].minimo,
+                nombreArchivo: `reporte_inventario_${Date.now()}.pdf`
+            });
         }
 
         function generarReporteExcel() {
