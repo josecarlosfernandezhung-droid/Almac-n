@@ -1,6 +1,6 @@
 {
-  "appId": "com.geova.almacen",
-  "appName": "Control de Almacén Geova",
+  "appId": "com.almacen",
+  "appName": "Control de Almacén",
   "webDir": "www",
   "bundledWebRuntime": false,
   "android": {
