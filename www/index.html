@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Gestor de Inventario </title>
+    <title>Gestor de Almacenes  </title>
     <!-- Primero intenta la copia local (se agrega sola al compilar en GitHub, con
          internet garantizado, así que en el APK funciona sin conexión). Si no existe
          esa copia (por ejemplo, abriendo el index.html suelto en un navegador), el
          onerror cambia el src al CDN como respaldo. -->
     <script src="vendor/chart.min.js" defer onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js';"></script>
-    <!-- Firebase ya NO se carga aquí en el head (bloqueaba la página si no había buena conexión). Se carga dinámicamente solo cuando hace falta, ver función cargarSDKFirebase() más abajo. -->
+    <!-- El SDK de xlsx se carga dinámicamente solo cuando hace falta, ver función cargarSDKExcel() más abajo. -->
     <style>
         * {
             margin: 0;
@@ -75,7 +75,7 @@
             text-align: center;
             /* Compensa visualmente el ancho del botón para que el título quede
                centrado en el header, no centrado-pero-empujado-a-la-derecha. */
-            padding-right: 52px;
+            padding-right: 96px;
         }
 
         .header h1 {
@@ -86,10 +86,12 @@
         /* Insignia "💾 Guardado" que aparece brevemente en la esquina del header
            cada vez que la app guarda algo en el dispositivo. Ver el envoltorio de
            localStorage.setItem más abajo, que la dispara automáticamente sin haber
-           tenido que tocar cada función que guarda datos una por una. */
+           tenido que tocar cada función que guarda datos una por una. Se ubica
+           debajo de los botones de notificaciones/sincronización para no toparse
+           con ellos cuando aparece. */
         .indicador-guardado {
             position: absolute;
-            top: 14px;
+            top: 54px;
             right: 16px;
             background: rgba(255,255,255,0.95);
             color: #2e7d32;
@@ -106,6 +108,84 @@
         .indicador-guardado.visible {
             opacity: 1;
             transform: translateY(0);
+        }
+
+        /* Botones ☁️ (sincronización) y 🔔 (notificaciones) fijos en la esquina
+           superior derecha del header, como en la app de referencia (MypiCuadre):
+           siempre a la vista y tocables desde cualquier pestaña, sin tener que
+           entrar a Dashboard ni a Stock en Vivo. */
+        .header-acciones {
+            position: absolute;
+            top: 12px;
+            right: 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 20;
+        }
+        .btn-header-icono {
+            position: relative;
+            width: 38px;
+            height: 38px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.18);
+            color: #fff;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .btn-header-icono:active {
+            background: rgba(255,255,255,0.32);
+        }
+        .header-badge {
+            position: absolute;
+            top: -3px;
+            right: -3px;
+            min-width: 16px;
+            height: 16px;
+            padding: 0 3px;
+            border-radius: 999px;
+            background: #e53935;
+            color: #fff;
+            font-size: 10px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 0 2px #7b5fe0;
+        }
+
+        /* Paneles desplegables que abren los botones de arriba: se posicionan justo
+           debajo del header, pegados a la derecha, por encima de todo lo demás. */
+        .header-panel {
+            position: fixed;
+            top: 78px;
+            right: 12px;
+            left: 12px;
+            max-width: 360px;
+            margin-left: auto;
+            background: #fff;
+            color: #333;
+            border-radius: 14px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.28);
+            z-index: 500;
+            max-height: 70vh;
+            overflow-y: auto;
+            padding: 14px;
+        }
+        .header-panel-titulo {
+            font-weight: bold;
+            font-size: 15px;
+            margin-bottom: 10px;
+        }
+        .header-panel-vacio {
+            color: #999;
+            font-size: 13px;
+            text-align: center;
+            padding: 14px 4px;
         }
 
         /* Toast global de confirmación al guardar/exportar un archivo (CSV, JSON,
@@ -194,7 +274,7 @@
             }
 
             .header-texto {
-                padding-right: 42px;
+                padding-right: 88px;
             }
 
             .header h1 {
@@ -210,6 +290,27 @@
                 width: 34px;
                 height: 34px;
                 font-size: 17px;
+            }
+
+            .header-acciones {
+                top: 10px;
+                right: 12px;
+                gap: 4px;
+            }
+
+            .btn-header-icono {
+                width: 32px;
+                height: 32px;
+                font-size: 16px;
+            }
+
+            .indicador-guardado {
+                top: 46px;
+                right: 12px;
+            }
+
+            .header-panel {
+                top: 68px;
             }
         }
 
@@ -259,7 +360,7 @@
             }
 
             .header-texto {
-                padding-right: 42px;
+                padding-right: 78px;
             }
 
             .header h1 {
@@ -282,8 +383,19 @@
             }
 
             .indicador-guardado {
-                top: 8px;
+                top: 44px;
                 right: 10px;
+            }
+
+            .header-acciones {
+                top: 6px;
+                right: 10px;
+            }
+
+            .btn-header-icono {
+                width: 30px;
+                height: 30px;
+                font-size: 15px;
             }
 
             .tabs {
@@ -1660,11 +1772,37 @@
     <div class="container">
         <div class="header">
             <button type="button" class="btn-hamburger" onclick="abrirMenuLateral()" aria-label="Abrir menú">☰</button>
-            <div class="header-texto">
-                <h1>📦 Gestor de Inventario Avanzado</h1>
-                <p>Análisis inteligente de entradas y salidas con gráficos y estadísticas</p>
+            <div class="header-texto">                <p>Análisis inteligente de entradas y salidas con gráficos y estadísticas</p>
+            </div>
+            <div class="header-acciones">
+                <button type="button" class="btn-header-icono" onclick="alternarPanelNotificaciones()" aria-label="Notificaciones">
+                    🔔
+                    <span id="badgeNotificaciones" class="header-badge" style="display:none;">0</span>
+                </button>
+                <button type="button" class="btn-header-icono" onclick="alternarPanelSync()" aria-label="Sincronización">☁️</button>
             </div>
             <div id="indicadorGuardado" class="indicador-guardado">💾 Guardado</div>
+        </div>
+
+        <!-- Panel desplegable: notificaciones (bajo stock). Se llena desde actualizarDashboard(). -->
+        <div id="panelNotificaciones" class="header-panel" style="display:none;">
+            <div class="header-panel-titulo">⚠️ Productos con Bajo Stock <span id="contadorBajoStock" style="font-size: 13px; font-weight: normal; color: #f44336;"></span></div>
+            <div id="bajoStock" class="top-products"></div>
+        </div>
+
+        <!-- Panel desplegable: sincronización con GitHub. Se llena desde actualizarWidgetSyncDashboard(). -->
+        <div id="panelSync" class="header-panel" style="display:none;">
+            <div id="dashboardSyncCard" style="display:none; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:22px;">☁️</span>
+                    <div>
+                        <div id="dashboardSyncTitulo" style="font-weight:bold;">Sincronizada</div>
+                        <div id="dashboardSyncTexto" style="font-size:13px; color:#666;">Última sincronización real: —</div>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-success" onclick="sincronizarMovimientosAhora(true)">🔄 Sincronizar ahora</button>
+            </div>
+            <div id="panelSyncVacio" class="header-panel-vacio" style="display:none;">Todavía no conectaste GitHub. Actívalo en "🌐 Stock en Vivo" para sincronizar entre dispositivos.</div>
         </div>
 
         <span id="iconoTabActual" style="display:none;"></span>
@@ -1673,8 +1811,7 @@
         <div class="drawer-overlay" id="drawerOverlay" onclick="cerrarMenuLateral()"></div>
         <div class="drawer-menu" id="drawerMenu">
             <div class="drawer-header">
-                <strong>📦 Gestor de Inventario</strong>
-                <span>Avanzado</span>
+                <strong>📦 Gestor de Almacenes</strong>
             </div>
             <div class="drawer-lista">
                 <button class="drawer-item tab-btn active" onclick="seleccionarTabMenu('dashboard', this)"><span class="drawer-icon">📊</span><span class="drawer-label">Dashboard</span></button>
@@ -1695,17 +1832,6 @@
             <!-- DASHBOARD -->
             <div id="dashboard" class="tab-content active">
                 <h2>📊 Panel de Control</h2>
-
-                <div id="dashboardSyncCard" style="display:none; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:#f5f7fa; border:1px solid #e0e0e0; border-radius:10px; padding:12px 16px; margin-bottom:16px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <span style="font-size:22px;">☁️</span>
-                        <div>
-                            <div id="dashboardSyncTitulo" style="font-weight:bold;">Sincronizada</div>
-                            <div id="dashboardSyncTexto" style="font-size:13px; color:#666;">Última sincronización real: —</div>
-                        </div>
-                    </div>
-                    <button type="button" class="btn btn-success" onclick="sincronizarMovimientosAhora(true)">🔄 Sincronizar ahora</button>
-                </div>
 
                 <div class="dashboard">
                     <div class="stat-card">
@@ -1729,9 +1855,6 @@
                         <div class="stat-subtitle">Tipos diferentes</div>
                     </div>
                 </div>
-
-                <h3>⚠️ Productos con Bajo Stock <span id="contadorBajoStock" style="font-size: 14px; font-weight: normal; color: #f44336;"></span></h3>
-                <div id="bajoStock" class="top-products"></div>
 
                 <h3>🔥 Productos Más Movidos (últimos 30 días)</h3>
                 <div id="masMovidos" class="top-products"></div>
@@ -2853,12 +2976,6 @@
                     <button class="btn btn-danger" onclick="confirmarLimpiar()">Eliminar Todos los Datos</button>
                 </div>
 
-                <div style="background: #f9f9f9; padding: 20px; border-radius: 16px; margin-bottom: 20px;">
-                    <h3>🔧 Reconstruir Catálogo de Productos</h3>
-                    <p style="color: #666; margin-bottom: 15px;">Si restauraste un backup antiguo y la pestaña "📦 Productos" quedó vacía, usa esto: reconstruye el catálogo tomando los nombres, unidades y categorías directamente del historial de movimientos ya guardado en este dispositivo (no hace falta volver a subir ningún archivo).</p>
-                    <button class="btn btn-success" onclick="reconstruirCatalogoAhora()">🔧 Reconstruir Catálogo desde el Historial</button>
-                </div>
-
                 <div style="background: #fff8e1; padding: 20px; border-radius: 16px; margin-bottom: 20px; border-left: 4px solid #ffb300;">
                     <h3>🗄️ Archivar Historial Antiguo</h3>
                     <p style="color: #666; margin-bottom: 12px;">El historial de movimientos solo crece, y entre más movimientos acumulados, más lento se pone TODO lo que calcula stock (Registro, Reportes, Dashboard, Pedidos). Esto resume los movimientos viejos dentro del stock inicial de cada producto y los saca de la lista activa — el stock actual queda exactamente igual, solo que se calcula más rápido. Antes de borrarlos, se descarga un archivo con todo lo archivado, por si algún día necesitas revisarlo.</p>
@@ -2874,80 +2991,15 @@
                     <div id="mensajeArchivarHistorial" style="margin-top: 10px;"></div>
                 </div>
 
-                <div style="background: #e8f9ee; padding: 20px; border-radius: 16px; margin-bottom: 20px; border-left: 4px solid #25d366;">
-                    <h3>📲 Compartir Catálogo con Otro Dispositivo</h3>
-                    <p style="color: #666; margin-bottom: 12px;">Manda por WhatsApp (o donde quieras) un código de texto con todo tu catálogo y existencias. La otra persona lo pega en esta misma pantalla, en "Recibir Catálogo" abajo, y se le carga todo automáticamente en su app — sin necesitar el archivo Excel.</p>
-                    <div class="button-group">
-                        <button class="btn btn-secondary" style="background:#25d366; color:#fff;" onclick="compartirCatalogoTextoWhatsApp()">💬 Compartir por WhatsApp</button>
-                        <button class="btn btn-secondary" onclick="copiarCatalogoTexto()">📋 Copiar código</button>
-                    </div>
-
-                    <h3 style="margin-top: 22px;">📥 Recibir Catálogo</h3>
-                    <p style="color: #666; margin-bottom: 10px;">Pega aquí el mensaje que te mandaron (con todo y el código de texto) y toca "Importar".</p>
-                    <div class="form-group">
-                        <textarea id="pegarCatalogoTexto" placeholder="Pega aquí el mensaje completo que te enviaron..." style="min-height: 90px;"></textarea>
-                    </div>
-                    <button class="btn btn-success" onclick="importarCatalogoDesdeTexto()">📥 Importar catálogo pegado</button>
-                    <p style="font-size: 12px; color: #999; margin-top: 8px;">Solo agrega productos que no tengas todavía (por nombre o SKU) — nunca borra ni cambia los que ya existen en tu app.</p>
-                    <div id="mensajeImportarCatalogoTexto" style="margin-top: 10px;"></div>
-                </div>
-
                 <div id="mensajeRespaldo" style="margin-top: 20px;"></div>
             </div>
 
-            <!-- STOCK EN VIVO (FIREBASE Y/O GITHUB) -->
+            <!-- RESPALDO Y SINCRONIZACIÓN COMPLETA (GITHUB) -->
             <div id="sincronizacion" class="tab-content">
                 <h2>🌐 Stock en Vivo</h2>
-                <p style="color: #666; margin-bottom: 20px;">Conecta esta app a Firebase o a GitHub (o a las dos si quieres) para poder ver el stock actualizado desde cualquier navegador, en cualquier sitio con internet. La app sigue funcionando 100% offline aunque no actives ninguna.</p>
+                <p style="color: #666; margin-bottom: 20px;">Conecta esta app a GitHub para sincronizar y respaldar automáticamente entre todos los dispositivos enlazados: productos, Almacén Principal, almacenes extra, la comparación Piso vs Almacén (lo último importado por Excel) y los movimientos. La app sigue funcionando 100% offline aunque no lo actives.</p>
 
-                <div style="background:#f9f9f9; padding:16px; border-radius:16px; margin-bottom:20px;">
-                    <h3 style="margin-top:0;">👁️ Qué se ve en el visor</h3>
-                    <p style="color:#666; font-size:13.5px; margin-bottom:12px;">Apaga los que no quieras que salgan en "Stock en Vivo" (por ejemplo, un almacén interno). No borra nada aquí dentro, solo deja de subirse.</p>
-                    <div id="listaVisibilidadVisor"></div>
-                </div>
-
-                <div style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; border-bottom: 2px solid #e0e0e0;">
-                    <button type="button" id="subtabFirebaseBtn" class="tab-btn active" onclick="cambiarSubtabSync('firebase')">🔥 Firebase</button>
-                    <button type="button" id="subtabGithubBtn" class="tab-btn" onclick="cambiarSubtabSync('github')">🐙 GitHub</button>
-                </div>
-
-                <!-- ===== OPCIÓN A: FIREBASE (contenido original, sin cambios) ===== -->
-                <div id="subtabFirebase">
-                    <div style="background: #f9f9f9; padding: 20px; border-radius: 16px; margin-bottom: 20px;">
-                        <h3>1️⃣ Crea tu proyecto Firebase (una sola vez, gratis)</h3>
-                        <ol style="margin: 10px 0 0 20px; color: #444; line-height: 1.8;">
-                            <li>Entra a <strong>console.firebase.google.com</strong> y crea un proyecto nuevo.</li>
-                            <li>En el menú, entra a <strong>Realtime Database</strong> → "Crear base de datos" → elige modo <strong>de prueba</strong> (o configura reglas luego).</li>
-                            <li>Ve a ⚙️ Configuración del proyecto → en "Tus apps" crea una <strong>app web</strong> (icono &lt;/&gt;).</li>
-                            <li>Copia el objeto <code>firebaseConfig</code> que te muestra (el bloque con apiKey, databaseURL, etc.) y pégalo abajo.</li>
-                        </ol>
-                    </div>
-
-                    <div style="background: #f9f9f9; padding: 20px; border-radius: 16px; margin-bottom: 20px;">
-                        <h3>2️⃣ Conecta tu app</h3>
-                        <div class="form-group">
-                            <label for="firebaseConfigInput">Pega aquí tu configuración de Firebase (firebaseConfig)</label>
-                            <textarea id="firebaseConfigInput" rows="6" placeholder='{"apiKey": "...", "databaseURL": "https://tu-proyecto-default-rtdb.firebaseio.com", "projectId": "...", ...}' style="width:100%; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 12px;"></textarea>
-                        </div>
-                        <div class="button-group">
-                            <button class="btn btn-success" onclick="conectarFirebase()">🔌 Conectar y Sincronizar</button>
-                            <button class="btn btn-secondary" onclick="desconectarFirebase()">❌ Desconectar</button>
-                        </div>
-                        <p id="estadoSyncFirebase" style="margin-top: 12px; font-weight: bold;">⚪ Sin conexión a Firebase (solo datos locales)</p>
-                        <div id="mensajeSyncFirebase"></div>
-                    </div>
-
-                    <div id="linkVisorStock" style="display:none; background: #eef6ff; padding: 20px; border-radius: 16px; margin-bottom: 20px;">
-                        <h3>3️⃣ Ver el stock desde cualquier sitio</h3>
-                    </div>
-
-                    <div style="background: #fff8e1; padding: 15px; border-radius: 16px; font-size: 14px; color: #665500;">
-                        💡 El plan gratuito (Spark) de Firebase Realtime Database alcanza sin problema para este uso: solo se guarda un resumen del stock, no todo el historial.
-                    </div>
-                </div>
-
-                <!-- ===== OPCIÓN B: GITHUB (nuevo) ===== -->
-                <div id="subtabGithub" style="display:none;">
+                <div id="subtabGithub">
                     <div style="background: #f9f9f9; padding: 20px; border-radius: 16px; margin-bottom: 20px;">
                         <h3>1️⃣ Prepara un repositorio en GitHub (una sola vez, gratis)</h3>
                         <ol style="margin: 10px 0 0 20px; color: #444; line-height: 1.8;">
@@ -2979,8 +3031,8 @@
                             </div>
                         </div>
                         <div class="form-group">
-                            <label for="githubPathInput">Nombre del archivo donde se guarda el stock</label>
-                            <input type="text" id="githubPathInput" placeholder="stock.json">
+                            <label for="githubPathInput">Nombre del archivo donde se guarda el respaldo</label>
+                            <input type="text" id="githubPathInput" placeholder="respaldo.json">
                         </div>
                         <div class="button-group">
                             <button class="btn btn-success" onclick="conectarGitHub()">🔌 Conectar y Sincronizar</button>
@@ -2995,7 +3047,7 @@
                     <!-- ===== SINCRONIZAR MOVIMIENTOS ENTRE DISPOSITIVOS (tú y tu colega) ===== -->
                     <div id="bloqueSyncMovimientos" style="display:none; background: #f0fdf4; padding: 20px; border-radius: 16px; margin-bottom: 20px; border: 2px solid #a5d6a7;">
                         <h3>4️⃣ Sincronizar movimientos con otros dispositivos (todos los que quieras)</h3>
-                        <p style="color:#444; margin: 8px 0;">Esto usa el mismo repositorio de arriba, así que no hace falta VPN. Cada dispositivo sube sus propios movimientos a una carpeta compartida (en su propio archivo) y trae automáticamente los de <strong>todos los demás</strong> dispositivos conectados, combinándolos sin duplicar. No hay límite de dos: puedes tener a José, Geovanny y a cualquier otro colega sincronizando al mismo tiempo, cada uno con su propio nombre.</p>
+                        <p style="color:#444; margin: 8px 0;">Esto usa el mismo repositorio de arriba, así que no hace falta VPN. Cada dispositivo sube sus propios movimientos a una carpeta compartida (en su propio archivo) y trae automáticamente los de <strong>todos los demás</strong> dispositivos conectados, combinándolos sin duplicar. No hay límite de dos: puedes tener a José, Geovanny y a cualquier otro colega sincronizando al mismo tiempo, cada uno con su propio nombre. En el mismo paso también se sincroniza el respaldo completo (productos, almacenes y Piso de Venta): gana siempre el que se sincronizó más reciente.</p>
                         <div class="form-group">
                             <label for="nombreDispositivoInput">Nombre de este dispositivo</label>
                             <input type="text" id="nombreDispositivoInput" placeholder="ej: José o Geovanny" onchange="guardarNombreDispositivo()">
@@ -3008,7 +3060,7 @@
                     </div>
 
                     <div style="background: #fff8e1; padding: 15px; border-radius: 16px; font-size: 14px; color: #665500;">
-                        💡 Solo se sube un resumen del stock (no el historial de movimientos), y solo cuando algo realmente cambió, para no llenar de commits el repositorio. Si el repositorio es <strong>público</strong>, cualquiera con el link puede ver el archivo; si es <strong>privado</strong>, solo se puede ver con el token.<br><br>
+                        💡 Se sube el respaldo completo (productos, Almacén Principal, almacenes extra y Piso de Venta), y solo cuando algo realmente cambió, para no llenar de commits el repositorio. Si el repositorio es <strong>público</strong>, cualquiera con el link puede ver el archivo; si es <strong>privado</strong>, solo se puede ver con el token.<br><br>
                         ⚠️ El token queda guardado en este dispositivo (localStorage). No lo compartas ni lo pegues en otro sitio.
                     </div>
                 </div>
@@ -3171,7 +3223,7 @@
             document.getElementById('registradoPor').value = localStorage.getItem('ultimoRegistradoPor') || '';
             actualizarHistorialHoyRegistro();
 
-            // Mostrar la app de inmediato, sin esperar a Firebase para nada
+            // Mostrar la app de inmediato, sin esperar a GitHub para nada
             actualizarDashboard();
             actualizarProductosList();
             setInterval(actualizarDashboard, 30000); // Actualizar cada 30 segundos
@@ -3185,14 +3237,12 @@
             actualizarInfoBackupAutomatico();
             revisarBackupAutomatico();
 
-            // Si ya se configuró Firebase antes, reconectar en segundo plano y quedarse
+            // Si ya se configuró GitHub antes, reconectar en segundo plano y quedarse
             // reintentando automáticamente hasta lograrlo (no hace falta abrir el archivo
             // y darle "Conectar y Sincronizar" cada vez).
-            intentarReconexionAutomatica();
             intentarReconexionAutomaticaGitHub();
 
-            // En cuanto el dispositivo detecte que volvió el internet/VPN, reintentar de inmediato
-            window.addEventListener('online', intentarReconexionAutomatica);
+            // En cuanto el dispositivo detecte que volvió el internet, reintentar de inmediato
             window.addEventListener('online', intentarReconexionAutomaticaGitHub);
         });
 
@@ -3831,7 +3881,7 @@
                 if(yaHabiaItemsPedido) renderizarCatalogoPedidoNuevo();
                 renderizarResumenTransferenciasPedidos();
             } else if(tabName === 'sincronizacion') {
-                renderizarVisibilidadVisor();
+                actualizarWidgetSyncDashboard();
             }
         }
 
@@ -4458,22 +4508,9 @@
             notificarCambioMovimientos();
         }
 
-        // Alterna entre las sub-pestañas "Firebase" y "GitHub" dentro de Stock en Vivo (no afecta las pestañas principales)
-        function cambiarSubtabSync(cual) {
-            document.getElementById('subtabFirebase').style.display = (cual === 'firebase') ? 'block' : 'none';
-            document.getElementById('subtabGithub').style.display = (cual === 'github') ? 'block' : 'none';
-            document.getElementById('subtabFirebaseBtn').classList.toggle('active', cual === 'firebase');
-            document.getElementById('subtabGithubBtn').classList.toggle('active', cual === 'github');
-        }
-
-        // ===== STOCK EN VIVO (FIREBASE REALTIME DATABASE) =====
-        let firebaseApp = null;
-        let firebaseStockRef = null;
-        let firebaseSDKEstado = 'no-cargado'; // 'no-cargado' | 'cargando' | 'listo' | 'error'
-
         // Carga la librería SheetJS (para leer archivos .xlsx) solo cuando hace falta,
-        // igual que Firebase: así la página no se pone lenta ni se cuelga si la conexión
-        // está mala y el usuario nunca llega a usar la función de importar Excel.
+        // así la página no se pone lenta ni se cuelga si la conexión está mala y el
+        // usuario nunca llega a usar la función de importar Excel.
         // Primero intenta la copia local (se agrega sola al compilar en GitHub, con
         // internet garantizado, así que en el APK funciona sin conexión). Si no existe
         // esa copia (por ejemplo, abriendo el index.html suelto en un navegador), cae al
@@ -4523,350 +4560,74 @@
             intentar(0);
         }
 
-        // Carga el SDK de Firebase de forma dinámica y sin bloquear el resto de la app.
-        // Solo se llama cuando el usuario realmente activa "Stock en Vivo".
-        function cargarSDKFirebase(callback) {
-            if(typeof firebase !== 'undefined') { firebaseSDKEstado = 'listo'; callback(true); return; }
-            if(firebaseSDKEstado === 'cargando') { setTimeout(() => cargarSDKFirebase(callback), 400); return; }
-
-            firebaseSDKEstado = 'cargando';
-            let terminado = false;
-            const timeout = setTimeout(() => {
-                if(terminado) return;
-                terminado = true;
-                firebaseSDKEstado = 'error';
-                callback(false);
-            }, 10000); // no esperar más de 10s si la conexión es lenta/no llega a Google
-
-            const s1 = document.createElement('script');
-            s1.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js';
-            s1.onload = () => {
-                const s2 = document.createElement('script');
-                s2.src = 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js';
-                s2.onload = () => {
-                    if(terminado) return;
-                    terminado = true;
-                    clearTimeout(timeout);
-                    firebaseSDKEstado = 'listo';
-                    callback(true);
-                };
-                s2.onerror = () => {
-                    if(terminado) return;
-                    terminado = true;
-                    clearTimeout(timeout);
-                    firebaseSDKEstado = 'error';
-                    callback(false);
-                };
-                document.head.appendChild(s2);
+        // ===== RESPALDO Y SINCRONIZACIÓN COMPLETA ENTRE DISPOSITIVOS (GITHUB) =====
+        // Antes solo se subía, para un visor público, un resumen curado del stock
+        // (respetando qué lugares estaban visibles/ocultos). Ahora, en el mismo archivo
+        // configurado en "Stock en Vivo", se guarda una copia completa y real de
+        // productos, Almacén Principal, almacenes extra y la comparación "Piso vs
+        // Almacén" (lo último importado por Excel en Pedidos) — todo lo que tenga este
+        // dispositivo en este momento. Cualquier otro dispositivo enlazado con el mismo
+        // repositorio la recibe solo con sincronizar (botón o el ciclo automático).
+        //
+        // No hay fusión campo por campo: gana el que se sincronizó más reciente. Es lo
+        // esperado en la práctica porque el catálogo y los almacenes normalmente los
+        // administra un solo dispositivo a la vez; los movimientos sí se combinan sin
+        // pisarse entre todos los dispositivos (ver sincronizarMovimientosAhora).
+        function construirRespaldoCompletoLocal() {
+            return {
+                productos: cargarProductos(),
+                almacenPrincipal: cargarAlmacenPrincipal(),
+                almacenesExtra: cargarAlmacenesExtra().map(a => ({ ...a, productos: cargarProductosAlmacenExtra(a.id) })),
+                resultadoComparacionPiso: resultadoComparacionPiso || []
             };
-            s1.onerror = () => {
-                if(terminado) return;
-                terminado = true;
-                clearTimeout(timeout);
-                firebaseSDKEstado = 'error';
-                callback(false);
-            };
-            document.head.appendChild(s1);
         }
 
-        function cargarConfigFirebase() {
-            try { return JSON.parse(localStorage.getItem('firebaseConfig') || 'null'); }
-            catch(e) { return null; }
+        function huellaRespaldo(datos) {
+            return JSON.stringify(datos.productos || []) + '|' + JSON.stringify(datos.almacenPrincipal || []) + '|' + JSON.stringify(datos.almacenesExtra || []) + '|' + JSON.stringify(datos.resultadoComparacionPiso || []);
         }
 
-        function inicializarFirebase(config) {
-            try {
-                if(firebaseApp) { try { firebaseApp.delete(); } catch(e) {} }
-                firebaseApp = firebase.initializeApp(config, 'inventarioApp');
-                firebaseStockRef = firebaseApp.database().ref('inventarios/' + slugifyId(config.projectId || config.databaseURL || 'principal') + '/stock');
-                return true;
-            } catch(e) {
-                mostrarMensajeSync('❌ Error al conectar con Firebase: ' + e.message, 'error');
-                return false;
+        function obtenerRespaldoGitHubTsConocido() {
+            return localStorage.getItem('respaldoGitHubTsConocido') || '';
+        }
+        function guardarRespaldoGitHubTsConocido(ts) {
+            localStorage.setItem('respaldoGitHubTsConocido', ts);
+        }
+        function obtenerRespaldoGitHubHuellaConocida() {
+            return localStorage.getItem('respaldoGitHubHuellaConocida') || '';
+        }
+        function guardarRespaldoGitHubHuellaConocida(huella) {
+            localStorage.setItem('respaldoGitHubHuellaConocida', huella);
+        }
+
+        // Aplica en este dispositivo un respaldo que llegó más reciente de otro
+        // dispositivo: reemplaza productos, Almacén Principal, almacenes extra y la
+        // comparación Piso vs Almacén, y refresca las pantallas que dependen de ellos
+        // (sin recargar la página, para no interrumpir lo que José esté haciendo).
+        function aplicarRespaldoRemoto(datos) {
+            guardarProductosCatalogo(datos.productos || []);
+            guardarAlmacenPrincipal(datos.almacenPrincipal || []);
+            const listaExtra = Array.isArray(datos.almacenesExtra) ? datos.almacenesExtra : [];
+            guardarAlmacenesExtra(listaExtra.map(a => ({ id: a.id, nombre: a.nombre, icono: a.icono || '📦' })));
+            listaExtra.forEach(a => guardarProductosAlmacenExtra(a.id, a.productos || []));
+            resultadoComparacionPiso = datos.resultadoComparacionPiso || [];
+            guardarResultadoComparacionPiso();
+
+            actualizarProductosList();
+            actualizarDashboard();
+            const contResumenPiso = document.getElementById('resumenComparacionPiso');
+            if(contResumenPiso) {
+                contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+                document.getElementById('controlesComparacionPiso').style.display = resultadoComparacionPiso.length > 0 ? 'block' : 'none';
+                actualizarBotonSoloAmbosPiso();
+                renderizarResultadoComparacion();
             }
-        }
-
-        function slugifyId(texto) {
-            return (texto || 'principal').toString().replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'principal';
-        }
-
-        function conectarFirebase() {
-            const texto = document.getElementById('firebaseConfigInput').value.trim();
-            if(!texto) {
-                mostrarMensajeSync('Pega primero la configuración (firebaseConfig) de tu proyecto Firebase.', 'error');
-                return;
-            }
-            let config;
-            try { config = JSON.parse(texto); }
-            catch(e) {
-                mostrarMensajeSync('❌ Eso no es un JSON válido. Copia y pega tal cual el bloque "firebaseConfig" que te da Firebase.', 'error');
-                return;
-            }
-            if(!config.databaseURL) {
-                mostrarMensajeSync('❌ Falta "databaseURL" en la configuración. Verifica que hayas creado una Realtime Database en tu proyecto.', 'error');
-                return;
-            }
-
-            mostrarMensajeSync('⏳ Conectando... (puede tardar unos segundos según tu conexión)', 'success');
-            cargarSDKFirebase(function(ok) {
-                if(!ok) {
-                    mostrarMensajeSync('❌ No se pudo cargar Firebase. Revisa tu conexión a internet e inténtalo de nuevo (la app sigue funcionando offline mientras tanto).', 'error');
-                    return;
-                }
-                if(inicializarFirebase(config)) {
-                    localStorage.setItem('firebaseConfig', JSON.stringify(config));
-                    if(reintentoSyncTimeout) { clearTimeout(reintentoSyncTimeout); reintentoSyncTimeout = null; }
-                    actualizarEstadoSync(true);
-                    sincronizarStockFirebase();
-                    mostrarLinkVisorStock(config);
-                    mostrarMensajeSync('✅ Conectado. El stock se está sincronizando en tiempo real.', 'success');
-                }
-            });
-        }
-
-        function desconectarFirebase() {
-            localStorage.removeItem('firebaseConfig');
-            if(firebaseApp) { try { firebaseApp.delete(); } catch(e) {} }
-            firebaseApp = null;
-            firebaseStockRef = null;
-            if(reintentoSyncTimeout) { clearTimeout(reintentoSyncTimeout); reintentoSyncTimeout = null; }
-            actualizarEstadoSync(false);
-            document.getElementById('linkVisorStock').style.display = 'none';
-            mostrarMensajeSync('Sincronización desactivada. Tus datos siguen guardados localmente sin cambios.', 'success');
-        }
-
-        function actualizarEstadoSync(conectado, reintentando) {
-            const el = document.getElementById('estadoSyncFirebase');
-            if(!el) return;
-            if(conectado) {
-                el.textContent = '🟢 Conectado — el stock se sincroniza en tiempo real';
-                el.style.color = '#2e7d32';
-            } else if(reintentando) {
-                el.textContent = '🟡 Sin internet/VPN ahora mismo — reintentando en segundo plano automáticamente...';
-                el.style.color = '#f57c00';
-            } else {
-                el.textContent = '⚪ Sin conexión a Firebase (solo datos locales en este dispositivo)';
-                el.style.color = '#666';
-            }
-        }
-
-        // Reconecta a Firebase sola, sin que el usuario tenga que abrir el archivo y darle
-        // "Conectar y Sincronizar" a mano. Si no hay internet/VPN en este momento, se vuelve
-        // a intentar cada 30 segundos en segundo plano hasta lograrlo. En cuanto conecta,
-        // sube automáticamente cualquier movimiento que se haya quedado pendiente.
-        let reintentoSyncTimeout = null;
-
-        function intentarReconexionAutomatica() {
-            if(firebaseStockRef) return; // ya está conectado, no hace falta nada más
-
-            const configGuardada = cargarConfigFirebase();
-            if(!configGuardada) return; // el usuario nunca activó Stock en Vivo, no hay nada que reconectar
-
-            document.getElementById('firebaseConfigInput').value = JSON.stringify(configGuardada, null, 2);
-
-            cargarSDKFirebase(function(ok) {
-                if(ok && inicializarFirebase(configGuardada)) {
-                    actualizarEstadoSync(true);
-                    mostrarLinkVisorStock(configGuardada);
-                    sincronizarStockFirebase(); // sube de inmediato el stock/movimientos pendientes
-                } else {
-                    actualizarEstadoSync(false, true);
-                    if(reintentoSyncTimeout) clearTimeout(reintentoSyncTimeout);
-                    reintentoSyncTimeout = setTimeout(intentarReconexionAutomatica, 30000);
-                }
-            });
-        }
-
-        // ===== QUÉ SE VE EN EL VISOR (Stock en Vivo) =====
-        // Por cada "lugar" (Punto de Venta, Almacén Principal, Piso de Venta, o cada
-        // almacén extra) José puede apagarlo para que no se suba/muestre en el visor,
-        // sin borrar ni tocar los datos reales de ese lugar dentro de esta app. Por
-        // defecto (si nunca se tocó el interruptor) todo se considera visible.
-        function cargarVisibilidadVisor() {
-            try { return JSON.parse(localStorage.getItem('visorVisibilidad')) || {}; }
-            catch(e) { return {}; }
-        }
-
-        function guardarVisibilidadVisor(conf) {
-            localStorage.setItem('visorVisibilidad', JSON.stringify(conf));
-        }
-
-        function esVisibleEnVisor(id) {
-            const conf = cargarVisibilidadVisor();
-            return conf[id] !== false;
-        }
-
-        function alternarVisibilidadVisor(id) {
-            const conf = cargarVisibilidadVisor();
-            conf[id] = !esVisibleEnVisor(id);
-            guardarVisibilidadVisor(conf);
-            renderizarVisibilidadVisor();
-            // Empuja el cambio de una vez si ya hay sync activo, para no tener que
-            // esperar al próximo movimiento para que el visor lo refleje.
-            if(typeof firebaseStockRef !== 'undefined' && firebaseStockRef) sincronizarStockFirebase();
-            if(typeof sincronizarStockGitHub === 'function') sincronizarStockGitHub();
-        }
-
-        // Nombres personalizados para el visor: por defecto cada lugar aparece con su
-        // nombre de siempre (Punto de Venta, Almacén Principal, Piso de Venta, o el
-        // nombre que le pusiste al crear el almacén extra), pero José puede ponerle
-        // otro nombre SOLO para cómo se ve en "Stock en Vivo" — no cambia nada aquí
-        // dentro de la app (por ejemplo, para no confundir "Piso de Venta" con "Punto
-        // de Venta" en el visor).
-        function cargarNombresVisor() {
-            try { return JSON.parse(localStorage.getItem('visorNombres')) || {}; }
-            catch(e) { return {}; }
-        }
-
-        function guardarNombresVisor(conf) {
-            localStorage.setItem('visorNombres', JSON.stringify(conf));
-        }
-
-        function nombreVisorDe(id, nombrePorDefecto) {
-            const conf = cargarNombresVisor();
-            return (conf[id] && conf[id].trim()) ? conf[id].trim() : nombrePorDefecto;
-        }
-
-        function renombrarFuenteVisor(id, nombreActual) {
-            const nuevo = prompt('¿Cómo quieres que se llame en el visor?', nombreActual);
-            if(nuevo === null) return; // canceló
-            const conf = cargarNombresVisor();
-            if(!nuevo.trim() || nuevo.trim() === nombreActual) {
-                delete conf[id]; // vacío o igual al de siempre = quitar el apodo
-            } else {
-                conf[id] = nuevo.trim();
-            }
-            guardarNombresVisor(conf);
-            renderizarVisibilidadVisor();
-            if(typeof firebaseStockRef !== 'undefined' && firebaseStockRef) sincronizarStockFirebase();
-            if(typeof sincronizarStockGitHub === 'function') sincronizarStockGitHub();
-        }
-
-        function renderizarVisibilidadVisor() {
-            const cont = document.getElementById('listaVisibilidadVisor');
-            if(!cont) return;
-
-            const fuentes = [];
-            if(cargarProductos().length > 0) fuentes.push({ id: 'productos', icono: '🏬', nombre: 'Punto de Venta' });
-            if(cargarAlmacenPrincipal().length > 0) fuentes.push({ id: 'almacenPrincipal', icono: '🏭', nombre: 'Almacén Principal' });
-            if(obtenerPisoVentaParaSnapshot().length > 0) fuentes.push({ id: 'pisoVenta', icono: '🧍', nombre: 'Piso de Venta' });
-            cargarAlmacenesExtra().forEach(a => {
-                if(cargarProductosAlmacenExtra(a.id).length > 0) {
-                    fuentes.push({ id: 'extra_' + a.id, icono: a.icono || '📦', nombre: a.nombre });
-                }
-            });
-
-            if(fuentes.length === 0) {
-                cont.innerHTML = '<p style="color:#999; font-size:13px;">Todavía no hay ningún almacén con productos cargados.</p>';
-                return;
-            }
-
-            cont.innerHTML = fuentes.map(f => {
-                const visible = esVisibleEnVisor(f.id);
-                const nombreMostrado = nombreVisorDe(f.id, f.nombre);
-                return `
-                    <div class="toggle-card">
-                        <div class="toggle-card-text">
-                            <div class="toggle-card-title">${f.icono} ${escaparHtmlSimple(nombreMostrado)}</div>
-                        </div>
-                        <button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:11.5px;" onclick="renombrarFuenteVisor('${f.id}', '${escaparHtmlSimple(nombreMostrado).replace(/'/g, "\\'")}')">✏️</button>
-                        <button type="button" class="toggle-switch ${visible ? 'on' : ''}" onclick="alternarVisibilidadVisor('${f.id}')" role="switch" aria-checked="${visible}">
-                            <span class="toggle-switch-thumb"></span>
-                        </button>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        // Convierte la última comparación "Piso vs Almacén" (importada por Excel en esa
-        // pestaña) al formato {nombre, sku, cantidad} para subirla junto al resto del
-        // stock, así el visor también puede mostrar cuánto hay en el Piso de Venta. Si
-        // José todavía no ha importado ningún Excel de comparación, se sube vacío.
-        function obtenerPisoVentaParaSnapshot() {
-            try {
-                const guardado = JSON.parse(localStorage.getItem('resultadoComparacionPiso') || '[]');
-                if(!Array.isArray(guardado)) return [];
-                return guardado
-                    .filter(r => r.piso !== null && r.piso !== undefined)
-                    .map(r => ({ nombre: r.nombre, sku: r.sku && r.sku !== '-' ? r.sku : '', cantidad: r.piso }));
-            } catch(e) { return []; }
-        }
-
-        // Junta todos los almacenes adicionales que José haya creado, con sus productos,
-        // para subirlos también al mismo JSON de stock (así aparecen en el visor).
-        // Respeta el interruptor de "Qué se ve en el visor": si un almacén está apagado,
-        // no se incluye aquí.
-        function obtenerAlmacenesExtraParaSnapshot() {
-            return cargarAlmacenesExtra()
-                .filter(a => esVisibleEnVisor('extra_' + a.id))
-                .map(a => ({
-                    id: a.id,
-                    nombre: a.nombre,
-                    icono: a.icono || '📦',
-                    productos: cargarProductosAlmacenExtra(a.id).map(p => ({
-                        nombre: p.nombre,
-                        sku: p.sku || '',
-                        cantidad: p.cantidad
-                    }))
-                }));
-        }
-
-        // Envía a Firebase un resumen del stock actual (no el historial completo). Se llama automáticamente tras cada cambio.
-        function sincronizarStockFirebase() {
-            if(!firebaseStockRef) return;
-            const catalogo = cargarProductos();
-            // Antes calcularStockProducto(p.nombre) por cada producto releía y volvía a
-            // parsear TODO localStorage (productos + movimientos) desde cero, para cada
-            // uno de los 680+ productos, en cada sincronización. Con el mapa de una sola
-            // pasada esto pasa de ~680 relecturas completas a 1 sola.
-            const mapaStockPV = construirMapaStockPuntoVenta();
-            const snapshot = {
-                actualizado: new Date().toISOString(),
-                productos: esVisibleEnVisor('productos') ? catalogo.map(p => ({
-                    nombre: p.nombre,
-                    sku: p.sku,
-                    categoria: p.categoria || 'Sin categoría',
-                    unidad: p.unidad || 'piezas',
-                    ubicacion: p.ubicacion || '',
-                    stock: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0
-                })) : [],
-                almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
-                    nombre: p.nombre,
-                    sku: p.sku || '',
-                    cantidad: p.cantidad
-                })) : [],
-                pisoVenta: esVisibleEnVisor('pisoVenta') ? obtenerPisoVentaParaSnapshot() : [],
-                almacenesExtra: obtenerAlmacenesExtraParaSnapshot(),
-                etiquetas: cargarNombresVisor()
-            };
-            firebaseStockRef.set(snapshot).catch(e => console.warn('No se pudo sincronizar con Firebase (revisa tu conexión):', e.message));
-        }
-
-        function mostrarLinkVisorStock(config) {
-            const payload = btoa(unescape(encodeURIComponent(JSON.stringify(config))));
-            const el = document.getElementById('linkVisorStock');
-            el.style.display = 'block';
-            el.innerHTML = `
-                <h3>3️⃣ Ver el stock desde cualquier sitio</h3>
-                <p style="color:#444; margin: 8px 0;">Abre el archivo <strong>visor-stock.html</strong> (te lo entrego aparte, súbelo a donde quieras: Google Drive, un hosting gratis, etc.) en cualquier navegador o celular con internet, y pega ahí este código de conexión una sola vez:</p>
-                <textarea readonly style="width:100%; font-family: monospace; font-size: 12px; padding: 8px;" rows="3" onclick="this.select()">${payload}</textarea>
-                <button type="button" class="btn btn-secondary" style="margin-top:8px;" onclick="navigator.clipboard.writeText('${payload}').then(()=>mostrarMensajeSync('📋 Código copiado al portapapeles', 'success'))">📋 Copiar código</button>
-            `;
-        }
-
-        function mostrarMensajeSync(texto, tipo) {
-            const div = document.getElementById('mensajeSyncFirebase');
-            if(!div) return;
-            div.innerHTML = `<div class="alert ${tipo === 'error' ? 'alert-error' : 'alert-success'}">${texto}</div>`;
-            setTimeout(() => { div.innerHTML = ''; }, 6000);
+            if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
         }
 
         // ===== STOCK EN VIVO (GITHUB) =====
-        // Guarda el stock como un archivo JSON dentro de un repositorio de GitHub, usando la API
-        // de Contenidos (Contents API) con un Personal Access Token. Es independiente de Firebase:
-        // se puede usar uno, el otro, o los dos a la vez, sin que se pisen entre sí.
+        // Guarda un respaldo completo como un archivo JSON dentro de un repositorio de
+        // GitHub, usando la API de Contenidos (Contents API) con un Personal Access Token.
         let githubFileSha = null;       // sha del archivo en GitHub (lo pide la API para poder actualizarlo)
-        let ultimoSnapshotGitHub = null; // huella del último stock ya subido, para no repetir subidas innecesarias
         let sincronizandoGitHub = false; // evita que se disparen dos subidas al mismo tiempo
         let reintentoSyncGitHubTimeout = null;
 
@@ -4880,7 +4641,7 @@
             const owner = document.getElementById('githubOwnerInput').value.trim();
             const repo = document.getElementById('githubRepoInput').value.trim();
             const branch = document.getElementById('githubBranchInput').value.trim() || 'main';
-            const path = document.getElementById('githubPathInput').value.trim() || 'stock.json';
+            const path = document.getElementById('githubPathInput').value.trim() || 'respaldo.json';
 
             if(!token || !owner || !repo) {
                 mostrarMensajeSyncGitHub('Completa al menos el token, el usuario y el repositorio.', 'error');
@@ -4898,11 +4659,15 @@
                 }
                 localStorage.setItem('githubConfig', JSON.stringify(config));
                 if(reintentoSyncGitHubTimeout) { clearTimeout(reintentoSyncGitHubTimeout); reintentoSyncGitHubTimeout = null; }
-                ultimoSnapshotGitHub = null; // forzar que la primera sincronización sí suba
+                // Se olvida lo último conocido para que la primera sincronización compare
+                // desde cero contra lo que haya ahora mismo en GitHub (por si el archivo
+                // ya existía de antes, en vez de asumir que este dispositivo manda).
+                guardarRespaldoGitHubTsConocido('');
+                guardarRespaldoGitHubHuellaConocida('');
                 actualizarEstadoSyncGitHub(true);
                 mostrarLinkVisorStockGitHub(config);
-                mostrarMensajeSyncGitHub('✅ Conectado. El stock se está sincronizando con GitHub.', 'success');
-                sincronizarStockGitHub();
+                mostrarMensajeSyncGitHub('✅ Conectado. Se está sincronizando con GitHub.', 'success');
+                sincronizarRespaldoGitHub();
                 activarSyncMovimientos(config);
             });
         }
@@ -4910,7 +4675,8 @@
         function desconectarGitHub() {
             localStorage.removeItem('githubConfig');
             githubFileSha = null;
-            ultimoSnapshotGitHub = null;
+            guardarRespaldoGitHubTsConocido('');
+            guardarRespaldoGitHubHuellaConocida('');
             if(reintentoSyncGitHubTimeout) { clearTimeout(reintentoSyncGitHubTimeout); reintentoSyncGitHubTimeout = null; }
             actualizarEstadoSyncGitHub(false);
             document.getElementById('linkVisorStockGitHub').style.display = 'none';
@@ -4922,7 +4688,7 @@
             const el = document.getElementById('estadoSyncGitHub');
             if(!el) return;
             if(conectado) {
-                el.textContent = '🟢 Conectado — el stock se sincroniza con GitHub';
+                el.textContent = '🟢 Conectado — se sincroniza con GitHub';
                 el.style.color = '#2e7d32';
             } else if(reintentando) {
                 el.textContent = '🟡 Sin internet ahora mismo — reintentando en segundo plano automáticamente...';
@@ -4933,8 +4699,8 @@
             }
         }
 
-        // Reconecta a GitHub sola al abrir la app, igual que hace Firebase (ver intentarReconexionAutomatica).
-        // Si no hay internet en este momento, reintenta cada 30 segundos hasta lograrlo.
+        // Reconecta a GitHub sola al abrir la app. Si no hay internet en este momento,
+        // reintenta cada 30 segundos hasta lograrlo.
         function intentarReconexionAutomaticaGitHub() {
             const configGuardada = cargarConfigGitHub();
             if(!configGuardada) return; // el usuario nunca activó GitHub, no hay nada que reconectar
@@ -4943,13 +4709,13 @@
             document.getElementById('githubOwnerInput').value = configGuardada.owner;
             document.getElementById('githubRepoInput').value = configGuardada.repo;
             document.getElementById('githubBranchInput').value = configGuardada.branch || 'main';
-            document.getElementById('githubPathInput').value = configGuardada.path || 'stock.json';
+            document.getElementById('githubPathInput').value = configGuardada.path || 'respaldo.json';
 
             probarConexionGitHub(configGuardada, function(ok) {
                 if(ok) {
                     actualizarEstadoSyncGitHub(true);
                     mostrarLinkVisorStockGitHub(configGuardada);
-                    sincronizarStockGitHub();
+                    sincronizarRespaldoGitHub();
                     activarSyncMovimientos(configGuardada);
                 } else {
                     actualizarEstadoSyncGitHub(false, true);
@@ -4977,108 +4743,90 @@
             .catch(err => callback(false, err.message || 'Revisa tu conexión a internet.'));
         }
 
-        // Pide el sha actual del archivo en GitHub (necesario para actualizarlo). Si el archivo
-        // todavía no existe, devuelve null y se creará al subir por primera vez.
-        function obtenerShaArchivoGitHub(config, callback) {
-            const url = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(config.path)}?ref=${encodeURIComponent(config.branch || 'main')}`;
-            fetch(url, {
-                headers: {
-                    'Authorization': `token ${config.token}`,
-                    'Accept': 'application/vnd.github+json'
-                }
-            })
-            .then(resp => {
-                if(resp.status === 404) { callback(null); return null; }
-                if(!resp.ok) throw new Error('No se pudo verificar el archivo existente (código ' + resp.status + ').');
-                return resp.json();
-            })
-            .then(data => { if(data) callback(data.sha); })
-            .catch(() => callback(null));
-        }
-
-        // Sube a GitHub un resumen del stock actual (no el historial completo), igual que hace Firebase.
-        // Solo sube si el stock cambió desde la última vez, para no llenar el repo de commits inútiles.
-        function sincronizarStockGitHub() {
+        // Revisa el archivo de respaldo en GitHub y, según cuál esté más reciente,
+        // trae lo de otro dispositivo hacia aquí o sube lo de aquí hacia GitHub.
+        // Se ejecuta junto con el resto del ciclo de sincronización (conectar, abrir
+        // la app, y automáticamente cada vez que se refresca el Dashboard).
+        function sincronizarRespaldoGitHub() {
             const config = cargarConfigGitHub();
             if(!config) return;
             if(sincronizandoGitHub) return;
-
-            const catalogo = cargarProductos();
-            // Mismo motivo que en sincronizarStockFirebase(): un solo mapa en vez de
-            // recalcular el stock producto por producto desde cero.
-            const mapaStockPV = construirMapaStockPuntoVenta();
-            const snapshot = {
-                actualizado: new Date().toISOString(),
-                productos: esVisibleEnVisor('productos') ? catalogo.map(p => ({
-                    nombre: p.nombre,
-                    sku: p.sku,
-                    categoria: p.categoria || 'Sin categoría',
-                    unidad: p.unidad || 'piezas',
-                    ubicacion: p.ubicacion || '',
-                    stock: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0
-                })) : [],
-                almacenPrincipal: esVisibleEnVisor('almacenPrincipal') ? cargarAlmacenPrincipal().map(p => ({
-                    nombre: p.nombre,
-                    sku: p.sku || '',
-                    cantidad: p.cantidad
-                })) : [],
-                pisoVenta: esVisibleEnVisor('pisoVenta') ? obtenerPisoVentaParaSnapshot() : [],
-                almacenesExtra: obtenerAlmacenesExtraParaSnapshot(),
-                etiquetas: cargarNombresVisor()
-            };
-
-            const huellaActual = JSON.stringify(snapshot.productos) + '|' + JSON.stringify(snapshot.almacenPrincipal) + '|' + JSON.stringify(snapshot.pisoVenta) + '|' + JSON.stringify(snapshot.almacenesExtra) + '|' + JSON.stringify(snapshot.etiquetas);
-            if(huellaActual === ultimoSnapshotGitHub) return; // no cambió nada, no hace falta subir
-
             sincronizandoGitHub = true;
 
-            const subirContenido = function(sha) {
-                const contenido = JSON.stringify(snapshot, null, 2);
-                const contenidoB64 = btoa(unescape(encodeURIComponent(contenido)));
-                const url = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(config.path)}`;
+            const url = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(config.path)}`;
+            const headers = {
+                'Authorization': `token ${config.token}`,
+                'Accept': 'application/vnd.github+json'
+            };
 
-                const body = {
-                    message: 'Actualizar stock - ' + new Date().toLocaleString('es-ES'),
-                    content: contenidoB64,
-                    branch: config.branch || 'main'
-                };
-                if(sha) body.sha = sha;
-
-                fetch(url, {
-                    method: 'PUT',
-                    headers: {
-                        'Authorization': `token ${config.token}`,
-                        'Accept': 'application/vnd.github+json',
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(body)
-                })
+            fetch(`${url}?ref=${encodeURIComponent(config.branch || 'main')}`, { headers })
                 .then(resp => {
-                    if(!resp.ok) return resp.json().then(err => { throw new Error(err.message || ('código ' + resp.status)); });
+                    if(resp.status === 404) return null; // el archivo todavía no existe, se creará al subir
+                    if(!resp.ok) throw new Error('código ' + resp.status);
                     return resp.json();
                 })
                 .then(data => {
-                    githubFileSha = data.content.sha;
-                    ultimoSnapshotGitHub = huellaActual;
-                    actualizarEstadoSyncGitHub(true);
+                    let remoto = null;
+                    if(data && data.content) {
+                        try { remoto = JSON.parse(decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))))); }
+                        catch(e) { remoto = null; }
+                    }
+                    githubFileSha = data ? data.sha : null;
+                    const tsConocido = obtenerRespaldoGitHubTsConocido();
+
+                    if(remoto && remoto.actualizado && (!tsConocido || remoto.actualizado > tsConocido)) {
+                        // Otro dispositivo sincronizó algo más nuevo que lo último que
+                        // conocíamos: se aplica aquí en vez de subir lo local.
+                        aplicarRespaldoRemoto(remoto);
+                        guardarRespaldoGitHubTsConocido(remoto.actualizado);
+                        guardarRespaldoGitHubHuellaConocida(huellaRespaldo(remoto));
+                        actualizarEstadoSyncGitHub(true);
+                        sincronizandoGitHub = false;
+                        return;
+                    }
+
+                    // Nada nuevo de otros dispositivos: si lo de aquí cambió desde el
+                    // último respaldo subido/traído, se sube.
+                    const local = construirRespaldoCompletoLocal();
+                    const huellaLocal = huellaRespaldo(local);
+                    if(huellaLocal === obtenerRespaldoGitHubHuellaConocida()) {
+                        sincronizandoGitHub = false;
+                        return; // no cambió nada, no hace falta subir
+                    }
+
+                    local.actualizado = new Date().toISOString();
+                    const contenido = JSON.stringify(local, null, 2);
+                    const contenidoB64 = btoa(unescape(encodeURIComponent(contenido)));
+                    const body = {
+                        message: 'Respaldo completo - ' + new Date().toLocaleString('es-ES'),
+                        content: contenidoB64,
+                        branch: config.branch || 'main'
+                    };
+                    if(githubFileSha) body.sha = githubFileSha;
+
+                    return fetch(url, {
+                        method: 'PUT',
+                        headers: { ...headers, 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    })
+                    .then(resp => {
+                        if(!resp.ok) return resp.json().then(err => { throw new Error(err.message || ('código ' + resp.status)); });
+                        return resp.json();
+                    })
+                    .then(respuesta => {
+                        githubFileSha = respuesta.content.sha;
+                        guardarRespaldoGitHubTsConocido(local.actualizado);
+                        guardarRespaldoGitHubHuellaConocida(huellaLocal);
+                        actualizarEstadoSyncGitHub(true);
+                    });
                 })
                 .catch(e => {
-                    console.warn('No se pudo sincronizar con GitHub (revisa tu conexión):', e.message);
+                    console.warn('No se pudo sincronizar el respaldo con GitHub (revisa tu conexión):', e.message);
                     actualizarEstadoSyncGitHub(false, true);
                     if(reintentoSyncGitHubTimeout) clearTimeout(reintentoSyncGitHubTimeout);
                     reintentoSyncGitHubTimeout = setTimeout(intentarReconexionAutomaticaGitHub, 30000);
                 })
                 .finally(() => { sincronizandoGitHub = false; });
-            };
-
-            if(githubFileSha) {
-                subirContenido(githubFileSha);
-            } else {
-                obtenerShaArchivoGitHub(config, function(sha) {
-                    githubFileSha = sha;
-                    subirContenido(sha);
-                });
-            }
         }
 
         function mostrarLinkVisorStockGitHub(config) {
@@ -5086,11 +4834,11 @@
             const urlRaw = `https://raw.githubusercontent.com/${config.owner}/${config.repo}/${config.branch || 'main'}/${config.path}`;
             el.style.display = 'block';
             el.innerHTML = `
-                <h3>3️⃣ Ver el stock desde cualquier sitio</h3>
-                <p style="color:#444; margin: 8px 0;">Si el repositorio es <strong>público</strong>, puedes abrir este link directamente desde cualquier navegador o celular con internet para ver el stock en formato JSON:</p>
+                <h3>3️⃣ Ver el respaldo desde cualquier sitio</h3>
+                <p style="color:#444; margin: 8px 0;">Si el repositorio es <strong>público</strong>, puedes abrir este link directamente desde cualquier navegador para ver el respaldo completo en formato JSON:</p>
                 <textarea readonly style="width:100%; font-family: monospace; font-size: 12px; padding: 8px;" rows="2" onclick="this.select()">${urlRaw}</textarea>
                 <button type="button" class="btn btn-secondary" style="margin-top:8px;" onclick="navigator.clipboard.writeText('${urlRaw}').then(()=>mostrarMensajeSyncGitHub('📋 Link copiado al portapapeles', 'success'))">📋 Copiar link</button>
-                <p style="color:#444; margin-top: 10px; font-size: 13px;">Si el repositorio es <strong>privado</strong>, ese link no se verá directamente en el navegador (GitHub pedirá acceso); en ese caso usa el archivo <strong>visor-stock.html</strong> configurado con tu token, o dime y te preparo una versión del visor que lea desde GitHub privado.</p>
+                <p style="color:#444; margin-top: 10px; font-size: 13px;">Si el repositorio es <strong>privado</strong>, ese link no se verá directamente en el navegador (GitHub pedirá acceso).</p>
             `;
         }
 
@@ -5196,15 +4944,21 @@
 
         // Se llama al abrir/refrescar el Dashboard y cada pocos segundos mientras la app
         // está abierta, para que el "hace X" se vea moviéndose como en MypiCuadre. Si no
-        // hay sincronización configurada (Stock en Vivo, paso 4), la tarjeta se oculta en
-        // vez de mostrar un dato falso.
+        // hay sincronización configurada (Stock en Vivo, paso 4), se muestra un aviso en
+        // vez de la tarjeta con un dato falso.
         function actualizarWidgetSyncDashboard() {
             const card = document.getElementById('dashboardSyncCard');
+            const vacio = document.getElementById('panelSyncVacio');
             if(!card) return;
             const config = (typeof cargarConfigGitHub === 'function') ? cargarConfigGitHub() : null;
-            if(!config) { card.style.display = 'none'; return; }
+            if(!config) {
+                card.style.display = 'none';
+                if(vacio) vacio.style.display = 'block';
+                return;
+            }
 
             card.style.display = 'flex';
+            if(vacio) vacio.style.display = 'none';
             const tituloEl = document.getElementById('dashboardSyncTitulo');
             const textoEl = document.getElementById('dashboardSyncTexto');
             const tsGuardado = localStorage.getItem('ultimaSincronizacionRealTs');
@@ -5224,6 +4978,42 @@
         // Refresca el texto "hace X" aunque no haya sincronizado nada nuevo, igual que en
         // MypiCuadre. Corre siempre (no solo con el Dashboard abierto) porque es barato.
         setInterval(actualizarWidgetSyncDashboard, 5000);
+
+        // ===== PANELES DESPLEGABLES DEL HEADER (🔔 notificaciones y ☁️ sincronización) =====
+        // Igual que en MypiCuadre: siempre a la vista en la esquina del header, en
+        // cualquier pestaña, sin tener que ir a Dashboard ni a Stock en Vivo.
+        function cerrarPanelesHeader() {
+            const notif = document.getElementById('panelNotificaciones');
+            const sync = document.getElementById('panelSync');
+            if(notif) notif.style.display = 'none';
+            if(sync) sync.style.display = 'none';
+        }
+
+        function alternarPanelNotificaciones() {
+            const panel = document.getElementById('panelNotificaciones');
+            if(!panel) return;
+            const yaAbierto = panel.style.display === 'block';
+            cerrarPanelesHeader();
+            if(!yaAbierto) panel.style.display = 'block';
+        }
+
+        function alternarPanelSync() {
+            const panel = document.getElementById('panelSync');
+            if(!panel) return;
+            const yaAbierto = panel.style.display === 'block';
+            cerrarPanelesHeader();
+            if(!yaAbierto) {
+                panel.style.display = 'block';
+                actualizarWidgetSyncDashboard();
+            }
+        }
+
+        // Cierra los paneles si se toca fuera de ellos (y de sus botones en el header).
+        document.addEventListener('click', function(e) {
+            const dentroDePanel = e.target.closest('#panelNotificaciones, #panelSync, .header-acciones');
+            if(!dentroDePanel) cerrarPanelesHeader();
+        });
+
 
         // Ciclo completo: sube lo propio y luego trae lo de los demás.
         // esManual=true cuando lo dispara el botón (para avisar con más detalle).
@@ -5419,8 +5209,7 @@
 
             actualizarWidgetSyncDashboard();
 
-            sincronizarStockFirebase();
-            sincronizarStockGitHub();
+            sincronizarRespaldoGitHub();
 
             // Mostrar productos con bajo stock (según el mínimo configurado en cada producto; 10 por defecto).
             // Se compara contra el Piso de Venta (lo que realmente se está vendiendo) cuando hay
@@ -5485,6 +5274,16 @@
                 });
 
             document.getElementById('contadorBajoStock').textContent = bajoStock.length > 0 ? `(${bajoStock.length})` : '';
+
+            const badgeNotif = document.getElementById('badgeNotificaciones');
+            if(badgeNotif) {
+                if(bajoStock.length > 0) {
+                    badgeNotif.textContent = bajoStock.length > 99 ? '99+' : bajoStock.length;
+                    badgeNotif.style.display = 'flex';
+                } else {
+                    badgeNotif.style.display = 'none';
+                }
+            }
 
             document.getElementById('bajoStock').innerHTML = bajoStock.length > 0 ? 
                 bajoStock.map(([prod, s, minimo, cantidad, usaPiso, reposicion]) => {
@@ -6574,28 +6373,6 @@
             actualizarListadoProductos();
             actualizarProductosList();
             if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
-        }
-
-        function reconstruirCatalogoAhora() {
-            const movimientos = cargarDatos();
-            if(movimientos.length === 0) {
-                mostrarMensajeRespaldo('No hay movimientos guardados en este dispositivo para reconstruir el catálogo.', 'error');
-                return;
-            }
-            let productos = cargarProductos();
-            const nombresExistentes = new Set(productos.map(p => p.nombre.trim().toLowerCase()));
-            const skusUsados = new Set(productos.filter(p => p.sku && p.sku.trim()).map(p => p.sku.trim().toUpperCase()));
-
-            const soloFaltantes = movimientos.filter(m => !nombresExistentes.has((m.producto || '').trim().toLowerCase()));
-            const nuevos = reconstruirListaDesdeMovimientos(soloFaltantes, skusUsados);
-
-            productos = productos.concat(nuevos);
-            guardarProductosCatalogo(productos);
-
-            mostrarMensajeRespaldo(`✅ Catálogo reconstruido: ${nuevos.length} producto(s) recuperado(s) desde el historial de movimientos.`, 'success');
-            actualizarListadoProductos();
-            actualizarProductosList();
-            actualizarDashboard();
         }
 
         // Genera un SKU único con prefijo según categoría, evitando cualquier código ya usado en skusUsados
@@ -7924,7 +7701,6 @@
             actualizarAlmacenExtraList();
             renderizarListaAlmacenesExtra();
             actualizarDashboard();
-            renderizarVisibilidadVisor();
             const verbo = entradaSalidaAlmExtraTipo === 'entrada' ? 'entrada' : 'salida';
             mostrarMensaje(`✅ Se registró la ${verbo} de ${cantidad} de "${p.nombre}".`, 'success');
         }
@@ -8018,7 +7794,6 @@
             actualizarAlmacenExtraList();
             renderizarListaAlmacenesExtra();
             actualizarDashboard();
-            renderizarVisibilidadVisor();
             mostrarMensaje(`✅ Se transfirieron ${cantidad} de "${p.nombre}" a ${destinoLabelFinal}.`, 'success');
         }
 
@@ -8848,133 +8623,6 @@
             setTimeout(() => { div.innerHTML = ''; }, 3000);
         }
 
-        // ===== COMPARTIR CATÁLOGO CON OTRO DISPOSITIVO (por texto/WhatsApp) =====
-        // Codifica el catálogo completo (nombre, SKU, categoría, unidad, mínimo y la
-        // existencia actual de cada producto) en un solo bloque de texto en base64, para
-        // que se pueda mandar como mensaje normal por WhatsApp y la otra persona lo
-        // pegue de vuelta en su propia app y le cargue todo el catálogo de un tirón,
-        // sin tener que pasar un archivo Excel.
-        const PREFIJO_CATALOGO_TEXTO = 'CATALOGOALMACEN1:';
-
-        function generarCodigoCatalogoTexto() {
-            const catalogo = cargarProductos();
-            const mapaStockPV = construirMapaStockPuntoVenta();
-            const productos = catalogo.map(p => ({
-                n: p.nombre,
-                s: p.sku || '',
-                c: p.categoria || 'Sin categoría',
-                u: p.unidad || 'piezas',
-                m: (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo,
-                q: mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0
-            }));
-            const payload = { v: 1, fecha: new Date().toISOString(), productos };
-            // btoa no soporta acentos/ñ directamente: se pasa primero por UTF-8 (encodeURIComponent + unescape)
-            const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-            return PREFIJO_CATALOGO_TEXTO + base64;
-        }
-
-        function compartirCatalogoTextoWhatsApp() {
-            const catalogo = cargarProductos();
-            if(catalogo.length === 0) {
-                alert('⚠️ No hay productos en el catálogo para compartir.');
-                return;
-            }
-            const codigo = generarCodigoCatalogoTexto();
-            const fechaTexto = new Date().toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
-            const texto = `📦 *Catálogo de Almacén* (${fechaTexto})\n${catalogo.length} producto(s).\n\nPara cargarlo: copia TODO este mensaje (incluido el código de abajo) y pégalo en tu app, en la pestaña "💾 Copia de Seguridad" → "Recibir Catálogo".\n\n${codigo}`;
-            window.location.href = 'whatsapp://send?text=' + encodeURIComponent(texto);
-        }
-
-        function copiarCatalogoTexto() {
-            const catalogo = cargarProductos();
-            if(catalogo.length === 0) {
-                alert('⚠️ No hay productos en el catálogo para compartir.');
-                return;
-            }
-            const codigo = generarCodigoCatalogoTexto();
-            navigator.clipboard.writeText(codigo)
-                .then(() => mostrarMensajeRespaldo('✅ Código copiado. Pégalo donde quieras enviarlo.', 'success'))
-                .catch(() => mostrarMensajeRespaldo('⚠️ No se pudo copiar automáticamente. Mantén presionado el botón "Compartir por WhatsApp" o vuelve a intentar.', 'error'));
-        }
-
-        function importarCatalogoDesdeTexto() {
-            const textarea = document.getElementById('pegarCatalogoTexto');
-            const msg = document.getElementById('mensajeImportarCatalogoTexto');
-            const texto = (textarea.value || '').trim();
-
-            if(!texto) {
-                msg.innerHTML = '<div class="alert alert-error">Pega primero el mensaje que te enviaron.</div>';
-                return;
-            }
-
-            const idx = texto.indexOf(PREFIJO_CATALOGO_TEXTO);
-            if(idx === -1) {
-                msg.innerHTML = '<div class="alert alert-error">No se encontró el código de catálogo en el texto. Asegúrate de pegar el mensaje completo, incluyendo la parte larga de letras y números al final.</div>';
-                return;
-            }
-
-            const base64 = texto.slice(idx + PREFIJO_CATALOGO_TEXTO.length).trim();
-            let payload;
-            try {
-                payload = JSON.parse(decodeURIComponent(escape(atob(base64))));
-            } catch(e) {
-                msg.innerHTML = '<div class="alert alert-error">El código está incompleto o dañado. Pide que te lo vuelvan a mandar completo.</div>';
-                return;
-            }
-
-            if(!payload || !Array.isArray(payload.productos) || payload.productos.length === 0) {
-                msg.innerHTML = '<div class="alert alert-error">Ese código no tiene productos para importar.</div>';
-                return;
-            }
-
-            // Igual que "Importar desde Excel": solo agrega productos nuevos (por nombre
-            // o SKU); nunca borra ni modifica los que ya existen en este dispositivo.
-            // A los nuevos se les pone como stock inicial la cantidad que traía el código.
-            let productos = cargarProductos();
-            const nombresExistentes = new Set(productos.map(p => p.nombre.trim().toLowerCase()));
-            const skusExistentes = new Set(productos.filter(p => p.sku && p.sku.trim()).map(p => p.sku.trim().toUpperCase()));
-
-            let agregados = 0, omitidosExistentes = 0, omitidosSinNombre = 0;
-            const ahora = new Date().toISOString();
-
-            payload.productos.forEach(item => {
-                const nombre = (item.n || '').trim();
-                let sku = (item.s || '').trim();
-
-                if(!nombre) { omitidosSinNombre++; return; }
-                if(nombresExistentes.has(nombre.toLowerCase()) || (sku && skusExistentes.has(sku.toUpperCase()))) {
-                    omitidosExistentes++;
-                    return;
-                }
-                if(!sku || skusExistentes.has(sku.toUpperCase())) {
-                    sku = generarSkuUnico(item.c || 'Sin categoría', skusExistentes);
-                }
-
-                productos.push({
-                    nombre, sku,
-                    categoria: item.c || 'Sin categoría',
-                    unidad: item.u || 'piezas',
-                    stockInicial: parseFloat(item.q) || 0,
-                    stockMinimo: (item.m === undefined || item.m === null) ? 10 : item.m,
-                    fechaCreacion: ahora
-                });
-                nombresExistentes.add(nombre.toLowerCase());
-                skusExistentes.add(sku.toUpperCase());
-                agregados++;
-            });
-
-            guardarProductosCatalogo(productos);
-            actualizarListadoProductos();
-            actualizarProductosList();
-            actualizarDashboard();
-
-            let mensaje = `✅ ${agregados} producto(s) agregado(s) con su existencia.`;
-            if(omitidosExistentes > 0) mensaje += ` ⏭️ ${omitidosExistentes} ya existían y se dejaron igual.`;
-            if(omitidosSinNombre > 0) mensaje += ` ⚠️ ${omitidosSinNombre} venían sin nombre y se ignoraron.`;
-            msg.innerHTML = `<div class="alert alert-success">${mensaje}</div>`;
-            textarea.value = '';
-        }
-
         function guardarBusquedaAvanzada() {
             mostrarMensaje('✅ Búsqueda guardada (próxima actualización)', 'success');
         }
@@ -9543,7 +9191,6 @@
             actualizarAlmacenPrincipalList();
             actualizarDashboard();
             actualizarHistorialEditable();
-            renderizarVisibilidadVisor();
 
             document.getElementById('mensajeTransferenciaLibre').innerHTML = `<div class="alert alert-success">✅ Se transfirieron ${cantidad} de "${escaparHtmlSimple(item.nombre)}" de ${escaparHtmlSimple(origenTxt)} a ${escaparHtmlSimple(destinoTxt)}.</div>`;
         }
