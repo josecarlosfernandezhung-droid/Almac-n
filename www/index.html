@@ -3286,6 +3286,7 @@
 
         function guardarProductosCatalogo(lista) {
             localStorage.setItem('productos', JSON.stringify(lista));
+            notificarCambioRespaldo();
         }
 
         // ===== ALMACÉN PRINCIPAL (bodega separada, se actualiza por Excel: nombre, SKU, cantidad) =====
@@ -3298,6 +3299,7 @@
 
         function guardarAlmacenPrincipal(lista) {
             localStorage.setItem('almacenPrincipal', JSON.stringify(lista));
+            notificarCambioRespaldo();
         }
 
         // ===== OTROS ALMACENES (bodegas adicionales creadas libremente por José) =====
@@ -3313,6 +3315,7 @@
 
         function guardarAlmacenesExtra(lista) {
             localStorage.setItem('almacenesExtra', JSON.stringify(lista));
+            notificarCambioRespaldo();
         }
 
         function cargarProductosAlmacenExtra(id) {
@@ -3322,6 +3325,7 @@
 
         function guardarProductosAlmacenExtra(id, lista) {
             localStorage.setItem('almacenExtra_' + id, JSON.stringify(lista));
+            notificarCambioRespaldo();
         }
 
         function crearAlmacenExtra() {
@@ -4606,55 +4610,177 @@
         // esperado en la práctica porque el catálogo y los almacenes normalmente los
         // administra un solo dispositivo a la vez; los movimientos sí se combinan sin
         // pisarse entre todos los dispositivos (ver sincronizarMovimientosAhora).
-        function construirRespaldoCompletoLocal() {
+        // Secciones que se sincronizan con "gana el último que cambió" (cada una por
+        // separado, así que si uno cambia Piso de Venta y otro un almacén, no se pisan).
+        // Los pedidos se fusionan por id (nunca se pierde un pedido guardado).
+        const SECCIONES_RESPALDO = ['productos', 'almacenPrincipal', 'almacenesExtra', 'resultadoComparacionPiso'];
+        let aplicandoRespaldoRemoto = false;
+        let respaldoDebounce = null;
+        let ultimoErrorSync = '';
+
+        // Se llama desde cada función que guarda productos, almacenes, Piso de Venta o
+        // pedidos: agenda una sincronización en ~1 s (junta varios cambios seguidos).
+        function notificarCambioRespaldo() {
+            if(aplicandoRespaldoRemoto) return;
+            if(!localStorage.getItem('githubConfig')) return;
+            clearTimeout(respaldoDebounce);
+            respaldoDebounce = setTimeout(() => sincronizarMovimientosAhora(false), 1000);
+        }
+
+        function hashTexto(t) {
+            let h = 5381;
+            for(let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+            return h + ':' + t.length;
+        }
+        function hashSeccion(v) { return hashTexto(JSON.stringify(v === undefined ? null : v)); }
+
+        function leerEstadoSeccionesRespaldo() {
+            try { return JSON.parse(localStorage.getItem('respaldoSeccionesEstado') || '{}') || {}; }
+            catch(e) { return {}; }
+        }
+        function guardarEstadoSeccionesRespaldo(est) {
+            localStorage.setItem('respaldoSeccionesEstado', JSON.stringify(est));
+        }
+
+        function construirSeccionesLocales() {
             return {
                 productos: cargarProductos(),
                 almacenPrincipal: cargarAlmacenPrincipal(),
                 almacenesExtra: cargarAlmacenesExtra().map(a => ({ ...a, productos: cargarProductosAlmacenExtra(a.id) })),
-                resultadoComparacionPiso: resultadoComparacionPiso || []
+                resultadoComparacionPiso: resultadoComparacionPiso || [],
+                pedidos: cargarPedidos()
             };
         }
 
-        function huellaRespaldo(datos) {
-            return JSON.stringify(datos.productos || []) + '|' + JSON.stringify(datos.almacenPrincipal || []) + '|' + JSON.stringify(datos.almacenesExtra || []) + '|' + JSON.stringify(datos.resultadoComparacionPiso || []);
+        // Lo que lee el visor "Stock en Vivo": stock ya calculado del Punto de Venta
+        // (catálogo + movimientos) y el Piso de Venta de la última comparación.
+        function construirVisorLocal(listaPiso) {
+            const mapa = construirMapaStockPuntoVenta();
+            return {
+                productos: cargarProductos().map(p => ({
+                    nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '',
+                    ubicacion: p.ubicacion || '',
+                    stock: mapa.get(p.nombre.trim().toLowerCase()) || 0
+                })),
+                pisoVenta: (listaPiso || [])
+                    .filter(r => r.estado !== 'noEncontrado' && r.piso !== null && r.piso !== undefined)
+                    .map(r => ({ nombre: r.nombre, sku: r.sku === '-' ? '' : (r.sku || ''), cantidad: r.piso }))
+            };
         }
 
-        function obtenerRespaldoGitHubTsConocido() {
-            return localStorage.getItem('respaldoGitHubTsConocido') || '';
+        // Une dos listas de pedidos por id. Si un pedido está en las dos, gana el que
+        // ya salió de "pendiente" (confirmado/cancelado) sobre el pendiente.
+        function fusionarPedidos(a, b) {
+            const rango = e => e === 'pendiente' ? 0 : 1;
+            const mapa = new Map();
+            [...(a || []), ...(b || [])].forEach(p => {
+                const ex = mapa.get(p.id);
+                if(!ex) { mapa.set(p.id, p); return; }
+                if(rango(p.estado) > rango(ex.estado)) mapa.set(p.id, p);
+                else if(rango(p.estado) === rango(ex.estado) && p.estado !== 'pendiente' && (p.fechaConfirmacion || '') > (ex.fechaConfirmacion || '')) mapa.set(p.id, p);
+            });
+            return Array.from(mapa.values()).sort((x, y) => x.id - y.id);
         }
-        function guardarRespaldoGitHubTsConocido(ts) {
-            localStorage.setItem('respaldoGitHubTsConocido', ts);
+
+        // Aplica en este dispositivo SOLO las secciones que llegaron distintas de otro
+        // dispositivo, y refresca las pantallas que dependen de ellas.
+        function aplicarSeccionesRemotas(sec) {
+            aplicandoRespaldoRemoto = true;
+            try {
+                if(sec.productos) guardarProductosCatalogo(sec.productos);
+                if(sec.almacenPrincipal) guardarAlmacenPrincipal(sec.almacenPrincipal);
+                if(sec.almacenesExtra) {
+                    const listaExtra = Array.isArray(sec.almacenesExtra) ? sec.almacenesExtra : [];
+                    guardarAlmacenesExtra(listaExtra.map(a => ({ id: a.id, nombre: a.nombre, icono: a.icono || '📦' })));
+                    listaExtra.forEach(a => guardarProductosAlmacenExtra(a.id, a.productos || []));
+                }
+                if(sec.resultadoComparacionPiso) {
+                    resultadoComparacionPiso = sec.resultadoComparacionPiso;
+                    guardarResultadoComparacionPiso();
+                }
+                if(sec.pedidos) guardarPedidos(sec.pedidos);
+            } finally { aplicandoRespaldoRemoto = false; }
+
+            try {
+                actualizarProductosList();
+                actualizarDashboard();
+                if(sec.productos && typeof actualizarListadoProductos === 'function') actualizarListadoProductos();
+                if(sec.almacenPrincipal && typeof actualizarAlmacenPrincipalList === 'function') actualizarAlmacenPrincipalList();
+                if(sec.almacenesExtra) {
+                    if(typeof renderizarListaAlmacenesExtra === 'function') renderizarListaAlmacenesExtra();
+                    if(typeof actualizarAlmacenExtraList === 'function') { try { actualizarAlmacenExtraList(); } catch(e) {} }
+                }
+                if(sec.resultadoComparacionPiso) {
+                    const contResumenPiso = document.getElementById('resumenComparacionPiso');
+                    if(contResumenPiso) {
+                        contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+                        document.getElementById('controlesComparacionPiso').style.display = resultadoComparacionPiso.length > 0 ? 'block' : 'none';
+                        actualizarBotonSoloAmbosPiso();
+                        renderizarResultadoComparacion();
+                    }
+                }
+                if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
+                if(sec.pedidos && document.getElementById('listaPedidosPendientes')) renderizarListaPedidos();
+            } catch(e) { console.warn('Refresco parcial tras sincronizar:', e.message); }
         }
-        function obtenerRespaldoGitHubHuellaConocida() {
-            return localStorage.getItem('respaldoGitHubHuellaConocida') || '';
-        }
+
+        // Compatibilidad: por si algo viejo llamaba a estas.
+        function construirRespaldoCompletoLocal() { return construirSeccionesLocales(); }
+        function obtenerRespaldoGitHubTsConocido() { return localStorage.getItem('respaldoGitHubTsConocido') || ''; }
+        function guardarRespaldoGitHubTsConocido(ts) { localStorage.setItem('respaldoGitHubTsConocido', ts); }
+        function obtenerRespaldoGitHubHuellaConocida() { return localStorage.getItem('respaldoGitHubHuellaConocida') || ''; }
         function guardarRespaldoGitHubHuellaConocida(huella) {
             localStorage.setItem('respaldoGitHubHuellaConocida', huella);
+            if(!huella) localStorage.removeItem('respaldoSeccionesEstado'); // reconectar = empezar comparando desde cero
         }
 
-        // Aplica en este dispositivo un respaldo que llegó más reciente de otro
-        // dispositivo: reemplaza productos, Almacén Principal, almacenes extra y la
-        // comparación Piso vs Almacén, y refresca las pantallas que dependen de ellos
-        // (sin recargar la página, para no interrumpir lo que José esté haciendo).
-        function aplicarRespaldoRemoto(datos) {
-            guardarProductosCatalogo(datos.productos || []);
-            guardarAlmacenPrincipal(datos.almacenPrincipal || []);
-            const listaExtra = Array.isArray(datos.almacenesExtra) ? datos.almacenesExtra : [];
-            guardarAlmacenesExtra(listaExtra.map(a => ({ id: a.id, nombre: a.nombre, icono: a.icono || '📦' })));
-            listaExtra.forEach(a => guardarProductosAlmacenExtra(a.id, a.productos || []));
-            resultadoComparacionPiso = datos.resultadoComparacionPiso || [];
-            guardarResultadoComparacionPiso();
-
-            actualizarProductosList();
-            actualizarDashboard();
-            const contResumenPiso = document.getElementById('resumenComparacionPiso');
-            if(contResumenPiso) {
-                contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
-                document.getElementById('controlesComparacionPiso').style.display = resultadoComparacionPiso.length > 0 ? 'block' : 'none';
-                actualizarBotonSoloAmbosPiso();
-                renderizarResultadoComparacion();
-            }
-            if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
+        // ----- Utilidades de la API de GitHub (con reintento si otro dispositivo escribió justo antes)
+        function githubUrlContenido(config, ruta) {
+            return `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${ruta.split('/').map(encodeURIComponent).join('/')}`;
+        }
+        function githubHeaders(config, crudo) {
+            return { 'Authorization': `token ${config.token}`, 'Accept': crudo ? 'application/vnd.github.raw+json' : 'application/vnd.github+json' };
+        }
+        function githubDecodificarJson(texto) {
+            try { return JSON.parse(texto); } catch(e) { return null; }
+        }
+        // Lee un archivo JSON del repo. Devuelve { json, sha } (json=null si no existe).
+        // Si el archivo pasa de 1 MB la API no manda el contenido: se pide en formato crudo.
+        function githubLeerJson(config, ruta) {
+            const url = githubUrlContenido(config, ruta) + '?ref=' + encodeURIComponent(config.branch || 'main') + '&t=' + Date.now();
+            return fetch(url, { headers: githubHeaders(config), cache: 'no-store' })
+                .then(resp => {
+                    if(resp.status === 404) return null;
+                    if(!resp.ok) throw new Error('código ' + resp.status);
+                    return resp.json();
+                })
+                .then(data => {
+                    if(!data) return { json: null, sha: null };
+                    if(data.content) return { json: githubDecodificarJson(decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))))), sha: data.sha };
+                    return fetch(url, { headers: githubHeaders(config, true), cache: 'no-store' })
+                        .then(r => { if(!r.ok) throw new Error('código ' + r.status); return r.text(); })
+                        .then(t => ({ json: githubDecodificarJson(t), sha: data.sha }));
+                });
+        }
+        function githubGuardarJson(config, ruta, objeto, mensaje, sha, esReintento) {
+            const body = {
+                message: mensaje,
+                content: btoa(unescape(encodeURIComponent(JSON.stringify(objeto)))),
+                branch: config.branch || 'main'
+            };
+            if(sha) body.sha = sha;
+            return fetch(githubUrlContenido(config, ruta), {
+                method: 'PUT',
+                headers: { ...githubHeaders(config), 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(resp => {
+                if(resp.ok) return resp.json();
+                if((resp.status === 409 || resp.status === 422) && !esReintento) {
+                    // El archivo cambió mientras subíamos (otro dispositivo, o se borró): se relee y se reintenta.
+                    return githubLeerJson(config, ruta).then(r => githubGuardarJson(config, ruta, objeto, mensaje, r.sha, true));
+                }
+                return resp.json().catch(() => ({})).then(err => { throw new Error('código ' + resp.status + (err.message ? ' — ' + err.message : '')); });
+            });
         }
 
         // ===== STOCK EN VIVO (GITHUB) =====
@@ -4700,7 +4826,6 @@
                 actualizarEstadoSyncGitHub(true);
                 mostrarLinkVisorStockGitHub(config);
                 mostrarMensajeSyncGitHub('✅ Conectado. Se está sincronizando con GitHub.', 'success');
-                sincronizarRespaldoGitHub();
                 activarSyncMovimientos(config);
             });
         }
@@ -4748,7 +4873,6 @@
                 if(ok) {
                     actualizarEstadoSyncGitHub(true);
                     mostrarLinkVisorStockGitHub(configGuardada);
-                    sincronizarRespaldoGitHub();
                     activarSyncMovimientos(configGuardada);
                 } else {
                     actualizarEstadoSyncGitHub(false, true);
@@ -4776,90 +4900,71 @@
             .catch(err => callback(false, err.message || 'Revisa tu conexión a internet.'));
         }
 
-        // Revisa el archivo de respaldo en GitHub y, según cuál esté más reciente,
-        // trae lo de otro dispositivo hacia aquí o sube lo de aquí hacia GitHub.
-        // Se ejecuta junto con el resto del ciclo de sincronización (conectar, abrir
-        // la app, y automáticamente cada vez que se refresca el Dashboard).
-        function sincronizarRespaldoGitHub() {
+        // Sincroniza el respaldo completo (productos, Almacén Principal, almacenes extra,
+        // Piso de Venta y pedidos) sección por sección: lo que cambió aquí se sube, lo que
+        // cambió en otro dispositivo se trae. Además deja en el mismo archivo el bloque
+        // "visor" (stock ya calculado) que lee la página Stock en Vivo.
+        // Se ejecuta dentro del ciclo de sincronizarMovimientosAhora (nunca en paralelo).
+        function sincronizarRespaldoGitHub(callback) {
+            const cb = typeof callback === 'function' ? callback : function() {};
             const config = cargarConfigGitHub();
-            if(!config) return;
-            if(sincronizandoGitHub) return;
-            sincronizandoGitHub = true;
+            if(!config) { cb(true); return; }
 
-            const url = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(config.path)}`;
-            const headers = {
-                'Authorization': `token ${config.token}`,
-                'Accept': 'application/vnd.github+json'
-            };
+            githubLeerJson(config, config.path).then(res => {
+                const remoto = (res.json && typeof res.json === 'object') ? res.json : null;
+                const estado = leerEstadoSeccionesRespaldo();
+                const local = construirSeccionesLocales();
+                const final = {};
+                const aplicar = {};
+                const porSubir = [];
 
-            fetch(`${url}?ref=${encodeURIComponent(config.branch || 'main')}`, { headers })
-                .then(resp => {
-                    if(resp.status === 404) return null; // el archivo todavía no existe, se creará al subir
-                    if(!resp.ok) throw new Error('código ' + resp.status);
-                    return resp.json();
-                })
-                .then(data => {
-                    let remoto = null;
-                    if(data && data.content) {
-                        try { remoto = JSON.parse(decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))))); }
-                        catch(e) { remoto = null; }
-                    }
-                    githubFileSha = data ? data.sha : null;
-                    const tsConocido = obtenerRespaldoGitHubTsConocido();
+                SECCIONES_RESPALDO.forEach(sec => {
+                    const hLocal = hashSeccion(local[sec]);
+                    if(!remoto || remoto[sec] === undefined) { final[sec] = local[sec]; porSubir.push(sec); return; }
+                    const hRemoto = hashSeccion(remoto[sec]);
+                    if(hRemoto === hLocal) { final[sec] = local[sec]; estado[sec] = hLocal; return; }
 
-                    if(remoto && remoto.actualizado && (!tsConocido || remoto.actualizado > tsConocido)) {
-                        // Otro dispositivo sincronizó algo más nuevo que lo último que
-                        // conocíamos: se aplica aquí en vez de subir lo local.
-                        aplicarRespaldoRemoto(remoto);
-                        guardarRespaldoGitHubTsConocido(remoto.actualizado);
-                        guardarRespaldoGitHubHuellaConocida(huellaRespaldo(remoto));
-                        actualizarEstadoSyncGitHub(true);
-                        sincronizandoGitHub = false;
-                        return;
-                    }
+                    const nuncaSincronizada = !estado[sec];
+                    const cambioLocal = !nuncaSincronizada && hLocal !== estado[sec];
+                    const localVacio = Array.isArray(local[sec]) && local[sec].length === 0;
+                    const remotoVacio = Array.isArray(remoto[sec]) && remoto[sec].length === 0;
+                    const localGana = cambioLocal || (nuncaSincronizada && remotoVacio && !localVacio);
 
-                    // Nada nuevo de otros dispositivos: si lo de aquí cambió desde el
-                    // último respaldo subido/traído, se sube.
-                    const local = construirRespaldoCompletoLocal();
-                    const huellaLocal = huellaRespaldo(local);
-                    if(huellaLocal === obtenerRespaldoGitHubHuellaConocida()) {
-                        sincronizandoGitHub = false;
-                        return; // no cambió nada, no hace falta subir
-                    }
+                    if(localGana) { final[sec] = local[sec]; porSubir.push(sec); }
+                    else { aplicar[sec] = remoto[sec]; final[sec] = remoto[sec]; estado[sec] = hRemoto; }
+                });
 
-                    local.actualizado = new Date().toISOString();
-                    const contenido = JSON.stringify(local, null, 2);
-                    const contenidoB64 = btoa(unescape(encodeURIComponent(contenido)));
-                    const body = {
-                        message: 'Respaldo completo - ' + new Date().toLocaleString('es-ES'),
-                        content: contenidoB64,
-                        branch: config.branch || 'main'
-                    };
-                    if(githubFileSha) body.sha = githubFileSha;
+                // Pedidos: se fusionan (un pedido guardado en cualquier dispositivo le llega a todos)
+                const pedidosUnidos = fusionarPedidos(local.pedidos, remoto && remoto.pedidos);
+                final.pedidos = pedidosUnidos;
+                if(hashSeccion(pedidosUnidos) !== hashSeccion(local.pedidos)) aplicar.pedidos = pedidosUnidos;
+                if(!remoto || hashSeccion(pedidosUnidos) !== hashSeccion(remoto.pedidos)) porSubir.push('pedidos');
 
-                    return fetch(url, {
-                        method: 'PUT',
-                        headers: { ...headers, 'Content-Type': 'application/json' },
-                        body: JSON.stringify(body)
-                    })
-                    .then(resp => {
-                        if(!resp.ok) return resp.json().then(err => { throw new Error(err.message || ('código ' + resp.status)); });
-                        return resp.json();
-                    })
-                    .then(respuesta => {
-                        githubFileSha = respuesta.content.sha;
-                        guardarRespaldoGitHubTsConocido(local.actualizado);
-                        guardarRespaldoGitHubHuellaConocida(huellaLocal);
-                        actualizarEstadoSyncGitHub(true);
+                if(Object.keys(aplicar).length > 0) aplicarSeccionesRemotas(aplicar);
+
+                // Bloque para el visor (se calcula DESPUÉS de aplicar lo remoto)
+                const visor = construirVisorLocal(final.resultadoComparacionPiso);
+                const hVisor = hashSeccion(visor);
+                const hVisorRemoto = (remoto && remoto.visor) ? hashSeccion(remoto.visor) : null;
+                if(hVisor === hVisorRemoto) estado.visor = hVisor;
+                else if(hVisor !== estado.visor) porSubir.push('visor');
+
+                if(porSubir.length === 0) { guardarEstadoSeccionesRespaldo(estado); return; }
+
+                const contenido = { ...final, visor, actualizado: new Date().toISOString() };
+                return githubGuardarJson(config, config.path, contenido, 'Respaldo completo - ' + new Date().toLocaleString('es-ES'), res.sha)
+                    .then(() => {
+                        porSubir.forEach(sec => { estado[sec] = (sec === 'visor') ? hVisor : hashSeccion(final[sec]); });
+                        guardarEstadoSeccionesRespaldo(estado);
                     });
-                })
-                .catch(e => {
-                    console.warn('No se pudo sincronizar el respaldo con GitHub (revisa tu conexión):', e.message);
-                    actualizarEstadoSyncGitHub(false, true);
-                    if(reintentoSyncGitHubTimeout) clearTimeout(reintentoSyncGitHubTimeout);
-                    reintentoSyncGitHubTimeout = setTimeout(intentarReconexionAutomaticaGitHub, 30000);
-                })
-                .finally(() => { sincronizandoGitHub = false; });
+            })
+            .then(() => { actualizarEstadoSyncGitHub(true); cb(true); })
+            .catch(e => {
+                ultimoErrorSync = e.message;
+                console.warn('No se pudo sincronizar el respaldo con GitHub:', e.message);
+                actualizarEstadoSyncGitHub(false, true);
+                cb(false);
+            });
         }
 
         function mostrarLinkVisorStockGitHub(config) {
@@ -4929,10 +5034,11 @@
             if(input && nombreGuardado) input.value = nombreGuardado;
 
             if(intervaloSyncMovimientos) clearInterval(intervaloSyncMovimientos);
-            // Sincronización automática de fondo cada 2 minutos mientras la app esté abierta.
-            intervaloSyncMovimientos = setInterval(() => sincronizarMovimientosAhora(false), 2 * 60 * 1000);
+            // Sincronización automática de fondo cada 20 segundos mientras la app esté abierta
+            // (antes 2 minutos). Solo sube algo si hubo cambios, así que es barato.
+            intervaloSyncMovimientos = setInterval(() => sincronizarMovimientosAhora(false), 20 * 1000);
 
-            if(nombreGuardado) sincronizarMovimientosAhora(false); // primer intento apenas conecta
+            sincronizarMovimientosAhora(false); // primer intento apenas conecta
         }
 
         function desactivarSyncMovimientos() {
@@ -5131,36 +5237,54 @@
         });
 
 
-        // Ciclo completo: sube lo propio y luego trae lo de los demás.
+        // Ciclo completo (siempre uno a la vez, para que GitHub no rechace escrituras
+        // simultáneas): 1) movimientos (sube los propios, trae los de otros) y
+        // 2) respaldo por secciones (productos, almacenes, Piso de Venta, pedidos, visor).
+        // Si mientras corre llega otro cambio, se hace otra vuelta al terminar.
         // esManual=true cuando lo dispara el botón (para avisar con más detalle).
+        let syncPendienteOtraVuelta = false;
         function sincronizarMovimientosAhora(esManual) {
             const config = cargarConfigGitHub();
             if(!config) return;
 
             const miNombre = obtenerNombreDispositivo();
-            if(!miNombre) {
-                if(esManual) mostrarMensajeSyncMovimientos('⚠️ Primero ponle un nombre a este dispositivo (ej. José) arriba.', 'error');
+            if(!miNombre && esManual) {
+                mostrarMensajeSyncMovimientos('⚠️ Primero ponle un nombre a este dispositivo (ej. José) arriba.', 'error');
                 return;
             }
-            if(sincronizandoMovimientos) return;
+            if(sincronizandoMovimientos) { syncPendienteOtraVuelta = true; return; }
             sincronizandoMovimientos = true;
-            actualizarEstadoSyncMovimientos('⏳ Sincronizando movimientos...', '#f57c00');
+            ultimoErrorSync = '';
+            actualizarEstadoSyncMovimientos('⏳ Sincronizando...', '#f57c00');
 
-            subirMovimientosPropios(config, miNombre, function(okSubida) {
-                descargarMovimientosDeOtros(config, miNombre, function(okBajada, traidos) {
+            const pasoMovimientos = cb => miNombre ? sincronizarMovimientosGitHub(config, miNombre, cb) : cb(true, 0);
+
+            pasoMovimientos(function(okMov, traidos) {
+                sincronizarRespaldoGitHub(function(okResp) {
                     sincronizandoMovimientos = false;
                     const hora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-                    if(okSubida && okBajada) {
-                        marcarSyncMovimientosPendiente(false); // ya no quedan cambios sin subir
+                    if(okMov && okResp) {
+                        marcarSyncMovimientosPendiente(false);
                         actualizarEstadoSyncMovimientos(`🟢 Sincronizado ${hora}` + (traidos > 0 ? ` — ${traidos} movimiento(s) nuevo(s) de otros dispositivos` : ''), '#2e7d32');
                         guardarUltimaSincronizacionReal();
-                        if(esManual) mostrarMensajeSyncMovimientos(traidos > 0 ? `✅ Se trajeron ${traidos} movimiento(s) nuevo(s).` : '✅ Ya estabas al día, no había nada nuevo.', 'success');
+                        if(esManual) mostrarMensajeSyncMovimientos(traidos > 0 ? `✅ Se trajeron ${traidos} movimiento(s) nuevo(s).` : '✅ Todo al día.', 'success');
                     } else {
-                        actualizarEstadoSyncMovimientos('🟡 No se pudo sincronizar ahora (revisa tu conexión) — se reintenta solo', '#f57c00');
+                        actualizarEstadoSyncMovimientos('🟡 No se pudo sincronizar ahora (revisa tu conexión' + (ultimoErrorSync ? ': ' + ultimoErrorSync : '') + ') — se reintenta solo', '#f57c00');
                         actualizarWidgetSyncDashboard();
-                        if(esManual) mostrarMensajeSyncMovimientos('❌ No se pudo sincronizar. Revisa tu conexión a internet e inténtalo de nuevo.', 'error');
+                        if(esManual) mostrarMensajeSyncMovimientos('❌ No se pudo sincronizar' + (ultimoErrorSync ? ' (' + ultimoErrorSync + ')' : '') + '. Revisa tu conexión e inténtalo de nuevo.', 'error');
+                    }
+                    if(syncPendienteOtraVuelta) {
+                        syncPendienteOtraVuelta = false;
+                        setTimeout(() => sincronizarMovimientosAhora(false), 300);
                     }
                 });
+            });
+        }
+
+        // Al volver a la app (cambiar de pestaña/app y regresar) se sincroniza ya, sin esperar el ciclo.
+        if(typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', function() {
+                if(!document.hidden && cargarConfigGitHub()) sincronizarMovimientosAhora(false);
             });
         }
 
@@ -5202,70 +5326,68 @@
             });
         }
 
-        // Sube SOLO los movimientos creados en este dispositivo (excluye los que
-        // ya llegaron de otro dispositivo, para no "devolverlos" mezclados).
-        function subirMovimientosPropios(config, miNombre, callback) {
-            const remotosIds = obtenerIdsMovimientosRemotos();
-            const propios = cargarDatos().filter(m => !remotosIds.has(m.id));
-            const rutaPropia = `${CARPETA_SYNC_MOVIMIENTOS}/${slugDispositivo(miNombre)}.json`;
-            const urlBase = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(rutaPropia)}`;
-            const headers = { 'Authorization': `token ${config.token}`, 'Accept': 'application/vnd.github+json' };
-
-            fetch(`${urlBase}?ref=${encodeURIComponent(config.branch || 'main')}`, { headers })
-                .then(resp => resp.status === 404 ? null : (resp.ok ? resp.json() : Promise.reject(new Error('código ' + resp.status))))
-                .then(data => {
-                    const contenido = JSON.stringify({ dispositivo: miNombre, actualizado: new Date().toISOString(), movimientos: propios }, null, 2);
-                    const contenidoB64 = btoa(unescape(encodeURIComponent(contenido)));
-                    const body = {
-                        message: `Sync movimientos (${miNombre}) - ` + new Date().toLocaleString('es-ES'),
-                        content: contenidoB64,
-                        branch: config.branch || 'main'
-                    };
-                    if(data && data.sha) body.sha = data.sha;
-
-                    return fetch(urlBase, {
-                        method: 'PUT',
-                        headers: { ...headers, 'Content-Type': 'application/json' },
-                        body: JSON.stringify(body)
-                    });
-                })
-                .then(resp => { if(!resp.ok) throw new Error('código ' + resp.status); callback(true); })
-                .catch(e => { console.warn('No se pudo subir mis movimientos a GitHub:', e.message); callback(false); });
-        }
-
-        // Revisa la carpeta compartida, trae los archivos de los DEMÁS dispositivos
-        // (todos menos el propio) y combina cualquier movimiento que no tengas ya.
-        function descargarMovimientosDeOtros(config, miNombre, callback) {
-            const urlCarpeta = `https://api.github.com/repos/${encodeURIComponent(config.owner)}/${encodeURIComponent(config.repo)}/contents/${encodeURIComponent(CARPETA_SYNC_MOVIMIENTOS)}?ref=${encodeURIComponent(config.branch || 'main')}`;
-            const headers = { 'Authorization': `token ${config.token}`, 'Accept': 'application/vnd.github+json' };
+        // Una sola pasada por la carpeta compartida: 1 llamada lista los archivos (con su
+        // sha). Se sube el archivo propio SOLO si cambió (o si alguien lo borró del repo)
+        // y se descargan SOLO los archivos de otros cuyo sha cambió desde la última vez.
+        // Sube únicamente los movimientos creados aquí (excluye los que llegaron de otros).
+        function sincronizarMovimientosGitHub(config, miNombre, callback) {
             const miArchivo = `${slugDispositivo(miNombre)}.json`;
+            const rutaPropia = `${CARPETA_SYNC_MOVIMIENTOS}/${miArchivo}`;
+            const urlCarpeta = githubUrlContenido(config, CARPETA_SYNC_MOVIMIENTOS) + '?ref=' + encodeURIComponent(config.branch || 'main') + '&t=' + Date.now();
 
-            fetch(urlCarpeta, { headers })
+            let cacheSha = {};
+            try { cacheSha = JSON.parse(localStorage.getItem('movsShaOtros') || '{}') || {}; } catch(e) { cacheSha = {}; }
+            let previoPropio = null;
+            try { previoPropio = JSON.parse(localStorage.getItem('movsPropiosSubido') || 'null'); } catch(e) { previoPropio = null; }
+
+            fetch(urlCarpeta, { headers: githubHeaders(config), cache: 'no-store' })
                 .then(resp => resp.status === 404 ? [] : (resp.ok ? resp.json() : Promise.reject(new Error('código ' + resp.status))))
-                .then(lista => {
-                    const archivosDeOtros = (Array.isArray(lista) ? lista : []).filter(f => f.name !== miArchivo && f.name.endsWith('.json'));
-                    if(archivosDeOtros.length === 0) { callback(true, 0); return; }
+                .then(listaBruta => {
+                    const lista = Array.isArray(listaBruta) ? listaBruta : [];
 
-                    let pendientes = archivosDeOtros.length;
-                    let totalTraidos = 0;
-                    let huboError = false;
+                    // 1) Subir lo propio, solo si cambió
+                    const remotosIds = obtenerIdsMovimientosRemotos();
+                    const propios = cargarDatos().filter(m => !remotosIds.has(m.id));
+                    const huella = hashTexto(JSON.stringify(propios));
+                    const miRemoto = lista.find(f => f.name === miArchivo);
+                    const sinCambios = miRemoto && previoPropio && previoPropio.sha === miRemoto.sha && previoPropio.huella === huella;
 
-                    archivosDeOtros.forEach(archivo => {
-                        fetch(archivo.url, { headers })
-                            .then(resp => { if(!resp.ok) throw new Error('código ' + resp.status); return resp.json(); })
-                            .then(data => {
-                                const contenido = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))));
-                                const json = JSON.parse(contenido);
-                                totalTraidos += combinarMovimientosRemotos(json.movimientos || []);
-                            })
-                            .catch(e => { huboError = true; console.warn('No se pudo leer movimientos remotos de', archivo.name, ':', e.message); })
-                            .finally(() => {
-                                pendientes--;
-                                if(pendientes === 0) callback(!huboError, totalTraidos);
-                            });
+                    const pasoSubida = sinCambios ? Promise.resolve() :
+                        githubGuardarJson(config, rutaPropia,
+                            { dispositivo: miNombre, actualizado: new Date().toISOString(), movimientos: propios },
+                            `Sync movimientos (${miNombre}) - ` + new Date().toLocaleString('es-ES'),
+                            miRemoto ? miRemoto.sha : null)
+                        .then(resp => { localStorage.setItem('movsPropiosSubido', JSON.stringify({ sha: resp.content.sha, huella })); });
+
+                    // 2) Traer lo de otros (en paralelo), solo los archivos que cambiaron
+                    return pasoSubida.then(() => {
+                        const archivosDeOtros = lista.filter(f => f.name !== miArchivo && f.name.endsWith('.json') && cacheSha[f.name] !== f.sha);
+                        if(archivosDeOtros.length === 0) return 0;
+                        return Promise.all(archivosDeOtros.map(archivo =>
+                            fetch(archivo.url + (archivo.url.includes('?') ? '&' : '?') + 't=' + Date.now(), { headers: githubHeaders(config), cache: 'no-store' })
+                                .then(resp => { if(!resp.ok) throw new Error('código ' + resp.status); return resp.json(); })
+                                .then(data => {
+                                    if(data.content) return decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))));
+                                    return fetch(archivo.url, { headers: githubHeaders(config, true), cache: 'no-store' }).then(r => r.text());
+                                })
+                                .then(texto => {
+                                    const json = JSON.parse(texto);
+                                    const nuevos = combinarMovimientosRemotos(json.movimientos || []);
+                                    cacheSha[archivo.name] = archivo.sha;
+                                    return nuevos;
+                                })
+                        )).then(cuentas => {
+                            localStorage.setItem('movsShaOtros', JSON.stringify(cacheSha));
+                            return cuentas.reduce((a, b) => a + b, 0);
+                        });
                     });
                 })
-                .catch(e => { console.warn('No se pudo listar la carpeta de sincronización:', e.message); callback(false, 0); });
+                .then(totalTraidos => callback(true, totalTraidos || 0))
+                .catch(e => {
+                    ultimoErrorSync = e.message;
+                    console.warn('No se pudo sincronizar movimientos con GitHub:', e.message);
+                    callback(false, 0);
+                });
         }
 
         // Agrega al historial local los movimientos remotos que todavía no existan
@@ -5324,8 +5446,6 @@
             document.getElementById('productosUnicos').textContent = productosUnicos;
 
             actualizarWidgetSyncDashboard();
-
-            sincronizarRespaldoGitHub();
 
             // Mostrar productos con bajo stock (según el mínimo configurado en cada producto; 10 por defecto).
             // Se compara contra el Piso de Venta (lo que realmente se está vendiendo) cuando hay
@@ -6889,6 +7009,7 @@
 
         function guardarResultadoComparacionPiso() {
             localStorage.setItem('resultadoComparacionPiso', JSON.stringify(resultadoComparacionPiso));
+            notificarCambioRespaldo();
         }
 
         function cargarResultadoComparacionPisoGuardado() {
@@ -8866,6 +8987,7 @@
 
         function guardarPedidos(lista) {
             localStorage.setItem('pedidosTransferencia', JSON.stringify(lista));
+            notificarCambioRespaldo();
         }
 
         let pedidoNuevoOrigen = 'almacenPrincipal';
