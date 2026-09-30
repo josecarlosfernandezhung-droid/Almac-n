@@ -3032,6 +3032,12 @@
                 <h2>🌐 Stock en Vivo</h2>
                 <p style="color: #666; margin-bottom: 20px;">Conecta esta app a GitHub para sincronizar y respaldar automáticamente entre todos los dispositivos enlazados: productos, Almacén Principal, almacenes extra, la comparación Piso vs Almacén (lo último importado por Excel) y los movimientos. La app sigue funcionando 100% offline aunque no lo actives.</p>
 
+                <div style="background:#f9f9f9; padding:20px; border-radius:16px; margin-bottom:20px;">
+                    <h3>👁️ Qué se ve en el visor</h3>
+                    <p style="color:#666; font-size:14px; margin:6px 0 12px;">Apaga los que no quieras que salgan en "Stock en Vivo" (por ejemplo, un almacén interno) y toca ✏️ para cambiarles el nombre. No borra nada aquí dentro, solo deja de mostrarse en el visor. Se aplica en todos los dispositivos.</p>
+                    <div id="listaVisibilidadVisor"></div>
+                </div>
+
                 <div id="subtabGithub">
                     <div style="background: #f9f9f9; padding: 20px; border-radius: 16px; margin-bottom: 20px;">
                         <h3>1️⃣ Prepara un repositorio en GitHub (una sola vez, gratis)</h3>
@@ -3919,6 +3925,7 @@
                 renderizarResumenTransferenciasPedidos();
             } else if(tabName === 'sincronizacion') {
                 actualizarWidgetSyncDashboard();
+                renderizarVisibilidadVisor();
             }
         }
 
@@ -4613,7 +4620,7 @@
         // Secciones que se sincronizan con "gana el último que cambió" (cada una por
         // separado, así que si uno cambia Piso de Venta y otro un almacén, no se pisan).
         // Los pedidos se fusionan por id (nunca se pierde un pedido guardado).
-        const SECCIONES_RESPALDO = ['productos', 'almacenPrincipal', 'almacenesExtra', 'resultadoComparacionPiso'];
+        const SECCIONES_RESPALDO = ['productos', 'almacenPrincipal', 'almacenesExtra', 'resultadoComparacionPiso', 'visorConfig'];
         let aplicandoRespaldoRemoto = false;
         let respaldoDebounce = null;
         let ultimoErrorSync = '';
@@ -4648,6 +4655,7 @@
                 almacenPrincipal: cargarAlmacenPrincipal(),
                 almacenesExtra: cargarAlmacenesExtra().map(a => ({ ...a, productos: cargarProductosAlmacenExtra(a.id) })),
                 resultadoComparacionPiso: resultadoComparacionPiso || [],
+                visorConfig: cargarVisorConfig(),
                 pedidos: cargarPedidos()
             };
         }
@@ -4656,16 +4664,76 @@
         // (catálogo + movimientos) y el Piso de Venta de la última comparación.
         function construirVisorLocal(listaPiso) {
             const mapa = construirMapaStockPuntoVenta();
-            return {
-                productos: cargarProductos().map(p => ({
+            const cfg = cargarVisorConfig();
+            const visible = id => !cfg.ocultos[id];
+            const visor = {
+                productos: visible('productos') ? cargarProductos().map(p => ({
                     nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '',
                     ubicacion: p.ubicacion || '',
                     stock: mapa.get(p.nombre.trim().toLowerCase()) || 0
-                })),
-                pisoVenta: (listaPiso || [])
+                })) : [],
+                pisoVenta: visible('pisoVenta') ? (listaPiso || [])
                     .filter(r => r.estado !== 'noEncontrado' && r.piso !== null && r.piso !== undefined)
-                    .map(r => ({ nombre: r.nombre, sku: r.sku === '-' ? '' : (r.sku || ''), cantidad: r.piso }))
+                    .map(r => ({ nombre: r.nombre, sku: r.sku === '-' ? '' : (r.sku || ''), cantidad: r.piso })) : [],
+                almacenPrincipal: visible('almacenPrincipal') ? cargarAlmacenPrincipal() : [],
+                almacenesExtra: cargarAlmacenesExtra()
+                    .filter(a => visible('extra_' + a.id))
+                    .map(a => ({ ...a, productos: cargarProductosAlmacenExtra(a.id) })),
+                etiquetas: cfg.etiquetas
             };
+            return visor;
+        }
+
+        // ===== QUÉ SE VE EN EL VISOR (visibilidad + nombres a medida) =====
+        function cargarVisorConfig() {
+            try {
+                const c = JSON.parse(localStorage.getItem('visorConfig') || '{}') || {};
+                return { ocultos: c.ocultos || {}, etiquetas: c.etiquetas || {} };
+            } catch(e) { return { ocultos: {}, etiquetas: {} }; }
+        }
+        function guardarVisorConfig(cfg) {
+            localStorage.setItem('visorConfig', JSON.stringify({ ocultos: cfg.ocultos || {}, etiquetas: cfg.etiquetas || {} }));
+            notificarCambioRespaldo();
+        }
+        function listaLugaresVisor() {
+            const lugares = [
+                { id: 'productos', icono: '🏬', nombre: 'Punto de Venta' },
+                { id: 'almacenPrincipal', icono: '🏭', nombre: 'Almacén Principal' },
+                { id: 'pisoVenta', icono: '🧍', nombre: 'Piso de Venta' }
+            ];
+            cargarAlmacenesExtra().forEach(a => lugares.push({ id: 'extra_' + a.id, icono: a.icono || '📦', nombre: a.nombre }));
+            return lugares;
+        }
+        function renderizarVisibilidadVisor() {
+            const cont = document.getElementById('listaVisibilidadVisor');
+            if(!cont) return;
+            const cfg = cargarVisorConfig();
+            cont.innerHTML = listaLugaresVisor().map(l => {
+                const nombre = (cfg.etiquetas[l.id] || '').trim() || l.nombre;
+                const on = !cfg.ocultos[l.id];
+                return `<div style="display:flex; align-items:center; gap:10px; background:#eef0ff; border-radius:14px; padding:12px 14px; margin-bottom:10px;">
+                    <span style="flex:1; font-weight:600;">${l.icono} ${escaparHtmlSimple(nombre)}</span>
+                    <button type="button" class="btn btn-secondary" style="padding:8px 12px;" onclick="renombrarLugarVisor('${l.id}')">✏️</button>
+                    <button type="button" class="toggle-switch ${on ? 'on' : ''}" onclick="alternarLugarVisor('${l.id}')" role="switch" aria-checked="${on}"><span class="toggle-switch-thumb"></span></button>
+                </div>`;
+            }).join('');
+        }
+        function alternarLugarVisor(id) {
+            const cfg = cargarVisorConfig();
+            if(cfg.ocultos[id]) delete cfg.ocultos[id]; else cfg.ocultos[id] = true;
+            guardarVisorConfig(cfg);
+            renderizarVisibilidadVisor();
+        }
+        function renombrarLugarVisor(id) {
+            const lugar = listaLugaresVisor().find(l => l.id === id);
+            if(!lugar) return;
+            const cfg = cargarVisorConfig();
+            const nuevo = prompt('Nombre que se verá en el visor (déjalo vacío para volver a "' + lugar.nombre + '"):', cfg.etiquetas[id] || lugar.nombre);
+            if(nuevo === null) return;
+            const limpio = nuevo.trim();
+            if(!limpio || limpio === lugar.nombre) delete cfg.etiquetas[id]; else cfg.etiquetas[id] = limpio;
+            guardarVisorConfig(cfg);
+            renderizarVisibilidadVisor();
         }
 
         // Une dos listas de pedidos por id. Si un pedido está en las dos, gana el que
@@ -4698,6 +4766,7 @@
                     resultadoComparacionPiso = sec.resultadoComparacionPiso;
                     guardarResultadoComparacionPiso();
                 }
+                if(sec.visorConfig) guardarVisorConfig(sec.visorConfig);
                 if(sec.pedidos) guardarPedidos(sec.pedidos);
             } finally { aplicandoRespaldoRemoto = false; }
 
@@ -4721,6 +4790,7 @@
                 }
                 if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
                 if(sec.pedidos && document.getElementById('listaPedidosPendientes')) renderizarListaPedidos();
+                renderizarVisibilidadVisor();
             } catch(e) { console.warn('Refresco parcial tras sincronizar:', e.message); }
         }
 
