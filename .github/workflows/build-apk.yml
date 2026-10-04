@@ -47,6 +47,25 @@ jobs:
           sed -i "s/versionCode 1/versionCode ${{ github.run_number }}/" android/app/build.gradle
           sed -i "s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
 
+      - name: Permitir que la app lea el servidor de pedidos por HTTP en la red local (sin cambiar el origen, para no perder los datos guardados)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          grep -q usesCleartextTraffic "$MANIFEST" || sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
+          node -e "
+          const fs = require('fs');
+          if (fs.existsSync('capacitor.config.json')) {
+            const c = JSON.parse(fs.readFileSync('capacitor.config.json', 'utf8'));
+            c.server = c.server || {};
+            c.server.cleartext = true;
+            c.android = c.android || {};
+            c.android.allowMixedContent = true;
+            fs.writeFileSync('capacitor.config.json', JSON.stringify(c, null, 2));
+            console.log('capacitor.config.json actualizado');
+          } else {
+            console.log('No hay capacitor.config.json: solo se ajusto el manifiesto');
+          }
+          "
+
       - name: Instalar plugin nativo FileSaver (guardado confiable de archivos en Descargas)
         run: |
           MAIN_ACTIVITY=$(find android -name MainActivity.java)
@@ -79,3 +98,4 @@ jobs:
         with:
           name: control-almacen-geova-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          
