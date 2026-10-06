@@ -2343,6 +2343,7 @@
                     <button class="btn btn-primary" onclick="abrirImportadorExcel('comparacion')">📥 Importar Excel del Punto de Venta</button>
                     <button class="btn btn-primary btn-servidor-pos" onclick="traerStockServidorPOS(false)">🔌 Traer del servidor de pedidos</button>
                     <button class="btn btn-secondary" onclick="cambiarDireccionServidorPOS()">📡 Elegir IP del servidor</button>
+                    <button class="btn btn-primary" onclick="abrirQueBajar()">📋 Qué bajar del almacén</button>
                     <button class="btn btn-secondary" id="btnAgregarProductoAlmacenPrincipalPedido" onclick="abrirModalAgregarAlmacenPrincipal()" style="display:none;">➕ Agregar producto al Almacén Principal</button>
                 </div>
                 <p class="texto-ip-servidor-pos" style="font-size:12px; color:#666; margin:6px 0 0 0;">Servidor: sin configurar</p>
@@ -7233,6 +7234,100 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
         }
 
         // Botón fijo para elegir/cambiar la IP del servidor en cualquier momento.
+        // ---- Qué bajar del almacén: el servidor lo calcula con las ventas recientes del piso (AxisPOS) ----
+        // Solo consulta cuando se abre esta pantalla o se toca "Actualizar". La elección de almacenes se hace en la PC (Alt+B).
+        let textoQueBajar = '';
+        function htmlEscQB(t) {
+            return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function leerConfigQueBajar() {
+            try {
+                const c = JSON.parse(localStorage.getItem('queBajarCfg') || '{}') || {};
+                return { dias: parseInt(c.dias, 10) || 7, cob: parseInt(c.cob, 10) || 7 };
+            } catch(e) { return { dias: 7, cob: 7 }; }
+        }
+        function cerrarQueBajar() {
+            const ov = document.getElementById('queBajarOverlay');
+            if(ov) ov.style.display = 'none';
+        }
+        function asegurarOverlayQueBajar() {
+            let ov = document.getElementById('queBajarOverlay');
+            if(ov) return ov;
+            const c = leerConfigQueBajar();
+            ov = document.createElement('div');
+            ov.id = 'queBajarOverlay';
+            ov.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9999; display:none; align-items:flex-start; justify-content:center; padding:4vh 10px;';
+            ov.addEventListener('click', function(e) { if(e.target === ov) cerrarQueBajar(); });
+            ov.innerHTML = '<div style="background:#fff; color:#222; border-radius:12px; padding:16px; width:100%; max-width:560px; max-height:90vh; overflow:auto;">' +
+                '<div style="display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">📋 Qué bajar del almacén</h3>' +
+                '<button onclick="cerrarQueBajar()" style="border:none; background:none; font-size:22px; cursor:pointer;">✕</button></div>' +
+                '<p style="font-size:12px; color:#666; margin:6px 0 10px;">Según las ventas recientes del piso en AxisPOS y lo que hay en el almacén.</p>' +
+                '<div style="display:flex; gap:12px; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">' +
+                '<label>Ventas de los últimos <input type="number" id="qbDias" min="1" max="60" value="' + c.dias + '" style="width:56px;"> días</label>' +
+                '<label>Cubrir <input type="number" id="qbCob" min="1" max="60" value="' + c.cob + '" style="width:56px;"> días</label></div>' +
+                '<div style="display:flex; gap:8px; margin-bottom:10px;">' +
+                '<button class="btn btn-primary" onclick="consultarQueBajar(true)">🔄 Actualizar</button>' +
+                '<button class="btn btn-secondary" onclick="copiarQueBajar()">📋 Copiar lista</button></div>' +
+                '<div id="qbCuerpo"></div></div>';
+            document.body.appendChild(ov);
+            return ov;
+        }
+        function abrirQueBajar() {
+            if(!direccionServidorPOS() && !pedirDireccionServidorPOS()) return;
+            const ov = asegurarOverlayQueBajar();
+            ov.style.display = 'flex';
+            consultarQueBajar(false);
+        }
+        async function consultarQueBajar(forzar) {
+            const cuerpo = document.getElementById('qbCuerpo');
+            if(!cuerpo) return;
+            const dias = Math.min(60, Math.max(1, parseInt(document.getElementById('qbDias').value, 10) || 7));
+            const cob = Math.min(60, Math.max(1, parseInt(document.getElementById('qbCob').value, 10) || 7));
+            try { localStorage.setItem('queBajarCfg', JSON.stringify({ dias: dias, cob: cob })); } catch(e) {}
+            textoQueBajar = '';
+            cuerpo.innerHTML = '<p style="color:#666;">Consultando al servidor… puede tardar unos segundos.</p>';
+            const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const temporizador = ctrl ? setTimeout(() => ctrl.abort(), 60000) : null;
+            try {
+                const res = await fetch(direccionServidorPOS() + '/api/reposicion?dias=' + dias + '&cob=' + cob + (forzar ? '&fresco=1' : ''), { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+                if(!res.ok) throw new Error('HTTP ' + res.status);
+                const d = await res.json();
+                if(!d || d.ok !== true) {
+                    cuerpo.innerHTML = '<p style="color:#b45309;">' + htmlEscQB((d && d.error) || 'El servidor no pudo calcularlo.') + '</p>';
+                    return;
+                }
+                const items = Array.isArray(d.items) ? d.items : [];
+                textoQueBajar = 'Bajar del almacén (ventas de ' + d.dias + ' días, cubrir ' + d.cobertura + ' días) - ' + d.generado + '\n' +
+                    items.map(x => x.bajar + ' x ' + x.nombre + (x.sku ? ' [' + x.sku + ']' : '')).join('\n');
+                if(!items.length) {
+                    cuerpo.innerHTML = '<p style="color:#15803d;">✅ No hace falta bajar nada: el piso alcanza para ' + htmlEscQB(d.cobertura) + ' días según las ventas de los últimos ' + htmlEscQB(d.dias) + ' días.</p>';
+                    return;
+                }
+                cuerpo.innerHTML = '<p style="font-size:12px; color:#666; margin:0 0 6px;">' + items.length + ' productos · calculado ' + htmlEscQB(d.generado) + '</p>' +
+                    items.map(x => '<div style="display:flex; justify-content:space-between; gap:10px; align-items:center; padding:8px 0; border-top:1px solid #e5e7eb;">' +
+                        '<div style="min-width:0;"><div style="font-weight:600;">' + htmlEscQB(x.nombre) + '</div>' +
+                        '<div style="font-size:12px; color:#666;">Piso ' + htmlEscQB(x.piso) + ' · Almacén ' + htmlEscQB(x.origen) + ' · vendió ' + htmlEscQB(x.vendido) + ' · alcanza ' + htmlEscQB(x.diasPiso) + ' d</div></div>' +
+                        '<div style="background:#dcfce7; color:#166534; font-weight:700; border-radius:8px; padding:6px 12px; font-size:16px; white-space:nowrap;">Bajar ' + htmlEscQB(x.bajar) + '</div></div>').join('');
+            } catch(e) {
+                cuerpo.innerHTML = '<p style="color:#b91c1c;">No se pudo consultar al servidor. Revisa que estés en la misma red WiFi que la PC y que el servidor sea la versión 50 o más nueva.</p>';
+            } finally {
+                if(temporizador) clearTimeout(temporizador);
+            }
+        }
+        function copiarQueBajar() {
+            if(!textoQueBajar) return;
+            const alterno = () => {
+                const t = document.createElement('textarea');
+                t.value = textoQueBajar; t.style.position = 'fixed'; t.style.opacity = '0';
+                document.body.appendChild(t); t.select();
+                try { document.execCommand('copy'); } catch(e) {}
+                document.body.removeChild(t);
+            };
+            if(navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(textoQueBajar).then(() => alert('Lista copiada.'), () => { alterno(); alert('Lista copiada.'); });
+            } else { alterno(); alert('Lista copiada.'); }
+        }
+
         function cambiarDireccionServidorPOS() {
             if(pedirDireccionServidorPOS()) {
                 pintarBotonServidorPOS('');
