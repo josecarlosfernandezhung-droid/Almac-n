@@ -7353,6 +7353,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                 return false;
             }
             localStorage.setItem('servidorPOSDireccion', nueva);
+            try { srv_recordarServidor(nueva); } catch(e) {}
             return true;
         }
 
@@ -7373,6 +7374,112 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
             return 'ok';
         }
 
+
+        // ---- Buscar el servidor solo, cuando cambió el punto de acceso y la IP guardada ya no responde ----
+        // Prueba primero las direcciones que ya funcionaron antes, luego la red en la que está este teléfono y los rangos
+        // más comunes de punto de acceso. Lo que encuentra lo recuerda para la próxima vez.
+        const srv_MEM = 'servidorPOSMemoria';
+        function srv_prefijoDe(ip) { const m = /^(\d+\.\d+\.\d+)\.\d+$/.exec(String(ip || '')); return m ? m[1] : null; }
+        function srv_leerMem() { try { return JSON.parse(localStorage.getItem(srv_MEM) || '{}') || {}; } catch(e) { return {}; } }
+        function srv_recordarServidor(base) {
+            try {
+                const m = /^https?:\/\/(\d+\.\d+\.\d+)\.(\d+)(?::\d+)?$/i.exec(String(base || ''));
+                if(!m) return;
+                const mem = srv_leerMem();
+                mem[m[1]] = m[2];
+                localStorage.setItem(srv_MEM, JSON.stringify(mem));
+            } catch(e) {}
+        }
+        async function srv_probarServidor(base, ms) {
+            const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const t = ctrl ? setTimeout(() => ctrl.abort(), ms) : null;
+            try {
+                const r = await fetch(base + '/api/ping', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+                const d = await r.json();
+                return !!(d && d.app === 'toto-pedidos');
+            } catch(e) { return false; } finally { if(t) clearTimeout(t); }
+        }
+        function srv_ipsLocales() {
+            return new Promise(resolve => {
+                const ips = new Set();
+                let pc = null, listo = false;
+                function fin() { if(listo) return; listo = true; try { if(pc) pc.close(); } catch(e) {} resolve(Array.from(ips)); }
+                try { pc = new RTCPeerConnection({ iceServers: [] }); } catch(e) { resolve([]); return; }
+                try {
+                    pc.createDataChannel('x');
+                    pc.onicecandidate = ev => {
+                        if(!ev || !ev.candidate) { fin(); return; }
+                        const m = /(\d+\.\d+\.\d+\.\d+)/.exec(ev.candidate.candidate || '');
+                        if(m && !/^(0\.|127\.|169\.254\.)/.test(m[1])) ips.add(m[1]);
+                    };
+                    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(fin);
+                } catch(e) { fin(); }
+                setTimeout(fin, 1500);
+            });
+        }
+        async function srv_escanearPrefijo(prefijo, puerto) {
+            let encontrado = null, i = 1;
+            async function trabajador() {
+                while(!encontrado && i <= 254) {
+                    const h = i++;
+                    const base = 'http://' + prefijo + '.' + h + ':' + puerto;
+                    if(await srv_probarServidor(base, 700)) { encontrado = base; }
+                }
+            }
+            await Promise.all(Array.from({ length: 40 }, trabajador));
+            return encontrado;
+        }
+        // Devuelve la dirección encontrada (por ejemplo http://192.168.43.5:8080) o '' si no apareció.
+        async function srv_buscarServidorEnRed(direccionActual, avance) {
+            const mp = /:(\d+)$/.exec(String(direccionActual || '').replace(/^https?:\/\//i, ''));
+            const puerto = mp ? mp[1] : '8080';
+            const limite = Date.now() + 45000;
+            const mem = srv_leerMem();
+            // 1) direcciones completas que ya funcionaron antes (en cada red)
+            const directas = Object.keys(mem).map(p => 'http://' + p + '.' + mem[p] + ':' + puerto);
+            const rd = await Promise.all(directas.map(b => srv_probarServidor(b, 1200).then(ok => ok ? b : null)));
+            const dir = rd.find(x => x);
+            if(dir) return dir;
+            // 2) rangos: el de esta red (si el teléfono lo deja ver), los recordados y los más comunes
+            const prefijos = [];
+            function agregar(p) { if(p && !prefijos.includes(p)) prefijos.push(p); }
+            (await srv_ipsLocales()).forEach(ip => agregar(srv_prefijoDe(ip)));
+            agregar(srv_prefijoDe(String(direccionActual || '').replace(/^https?:\/\//i, '').split(':')[0]));
+            Object.keys(mem).forEach(agregar);
+            ['192.168.43', '192.168.137', '192.168.0', '192.168.1', '192.168.2', '172.20.10', '192.168.42', '10.0.0', '192.168.100'].forEach(agregar);
+            for(const p of prefijos) {
+                if(Date.now() > limite) break;
+                if(avance) avance('Buscando el servidor en ' + p + '.x ...');
+                const b = await srv_escanearPrefijo(p, puerto);
+                if(b) return b;
+            }
+            return '';
+        }
+
+        async function fetchConTiempoPOS(url, ms) {
+            const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const t = ctrl ? setTimeout(() => ctrl.abort(), ms) : null;
+            try { return await fetch(url, { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined }); }
+            finally { if(t) clearTimeout(t); }
+        }
+
+        // Pide algo al servidor; si no responde (por ejemplo porque cambió el punto de acceso y la IP ya no es la misma),
+        // lo busca solo en la red, guarda la nueva dirección y repite la petición.
+        async function fetchServidorPOS(ruta, silencioso) {
+            try {
+                return await fetchConTiempoPOS(direccionServidorPOS() + ruta, 10000);
+            } catch(e) {
+                if(silencioso) throw e;
+                pintarBotonServidorPOS('🔌 Buscando el servidor en la red...');
+                const nueva = await srv_buscarServidorEnRed(direccionServidorPOS(), t => pintarBotonServidorPOS('🔌 ' + t));
+                if(!nueva) throw e;
+                localStorage.setItem('servidorPOSDireccion', nueva);
+                srv_recordarServidor(nueva);
+                mostrarMensajeComparacionPiso('Encontré el servidor en ' + nueva.replace(/^https?:\/\//i, '') + ' y guardé la dirección.', 'success');
+                return await fetchConTiempoPOS(nueva + ruta, 10000);
+            }
+        }
+
         async function traerStockServidorPOS(silencioso) {
             if(servidorPOSEnCurso) return;
             if(!direccionServidorPOS()) {
@@ -7381,16 +7488,22 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                 iniciarServidorPOSAutomatico();
             }
             servidorPOSEnCurso = true;
-            const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-            const temporizador = ctrl ? setTimeout(() => ctrl.abort(), 10000) : null;
             try {
-                const res = await fetch(direccionServidorPOS() + '/api/stock-pos', { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+                const res = await fetchServidorPOS('/api/stock-pos', !!silencioso);
                 if(!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 if(!data || !Array.isArray(data.productos)) throw new Error('Respuesta inesperada');
                 aplicarStockServidorPOS(data, !!silencioso);
+                // Con el mismo botón se actualizan también Almacén Principal (Almacén placa) y Casa de Carlos
+                // desde la base de AxisPOS. Si falla, no afecta lo del punto de venta.
+                if(!silencioso) {
+                    try { await traerAlmacenesServidorPOS(); } catch(e3) {
+                        mostrarMensajeComparacionPiso('⚠️ El punto de venta se actualizó, pero no se pudieron traer los almacenes: ' + (e3 && e3.message ? e3.message : 'error'), 'error');
+                    }
+                }
                 try { if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo(); } catch(e2) {}
                 pintarBotonServidorPOS('🔌 Servidor conectado · ' + horaCortaServidorPOS());
+                srv_recordarServidor(direccionServidorPOS());
             } catch(e) {
                 pintarBotonServidorPOS('🔌 Sin conexión con el servidor (tocar para reintentar)');
                 if(!silencioso) {
@@ -7400,9 +7513,104 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                     }, 400);
                 }
             } finally {
-                if(temporizador) clearTimeout(temporizador);
                 servidorPOSEnCurso = false;
             }
+        }
+
+        // ---- Almacenes reales de AxisPOS: 13 = Almacén placa (-> Almacén Principal), 14 = Casa de Carlos ----
+        const ALMACEN_AXIS_PRINCIPAL_ID = 13;
+        const ALMACEN_AXIS_CARLOS_ID = 14;
+
+        // Deja la lista igual a AxisPOS: pisa la cantidad de lo que ya está (por SKU, o por nombre si no hay SKU),
+        // agrega lo nuevo que tenga existencia y elimina lo que en AxisPOS ya está en 0.
+        function aplicarFilasDeAxisALista(lista, productos) {
+            const porSku = new Map();
+            const porNombre = new Map();
+            lista.forEach((p, i) => {
+                if(p.sku && String(p.sku).trim()) porSku.set(String(p.sku).trim().toUpperCase(), i);
+                porNombre.set(String(p.nombre || '').trim().toLowerCase(), i);
+            });
+            let actualizados = 0, agregados = 0, eliminados = 0;
+            const vigentes = new Set(); // posiciones que AxisPOS dice que siguen con existencia
+            (productos || []).forEach(f => {
+                const nombre = String(f.nombre || '').trim();
+                const sku = String(f.sku || '').trim();
+                const cantidad = parseFloat(f.stock);
+                if(!nombre || isNaN(cantidad)) return;
+                let idx = -1;
+                if(sku && porSku.has(sku.toUpperCase())) idx = porSku.get(sku.toUpperCase());
+                else if(porNombre.has(nombre.toLowerCase())) idx = porNombre.get(nombre.toLowerCase());
+                if(idx !== -1) {
+                    if(lista[idx].cantidad !== cantidad) actualizados++;
+                    lista[idx].cantidad = cantidad;
+                    if(sku && !(lista[idx].sku && String(lista[idx].sku).trim())) lista[idx].sku = sku;
+                    if(cantidad > 0) vigentes.add(idx);
+                } else if(cantidad > 0) {
+                    lista.push({ nombre, sku, cantidad });
+                    if(sku) porSku.set(sku.toUpperCase(), lista.length - 1);
+                    porNombre.set(nombre.toLowerCase(), lista.length - 1);
+                    vigentes.add(lista.length - 1);
+                    agregados++;
+                }
+            });
+            // AxisPOS manda: lo que ahí está en 0 (o ya no aparece en ese almacén) se quita de la lista.
+            // Si AxisPOS no devolvió nada para este almacén, no se borra nada (por seguridad).
+            if((productos || []).length > 0) {
+                const quedan = lista.filter((p, i) => vigentes.has(i));
+                eliminados = lista.length - quedan.length;
+                if(eliminados > 0) lista.splice(0, lista.length, ...quedan);
+            }
+            return { actualizados, agregados, eliminados };
+        }
+
+        // Busca entre los "Otros Almacenes" el de Casa de Carlos (por nombre); si no existe, lo crea.
+        function obtenerAlmacenExtraCarlos() {
+            const quitarTildes = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            const lista = cargarAlmacenesExtra();
+            let alm = lista.find(a => quitarTildes(a.nombre).includes('carlos'));
+            if(!alm) {
+                alm = { id: 'alm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), nombre: 'Casa de Carlos', icono: '🏠' };
+                lista.push(alm);
+                guardarAlmacenesExtra(lista);
+            }
+            return alm;
+        }
+
+        async function traerAlmacenesServidorPOS() {
+            const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const temporizador = ctrl ? setTimeout(() => ctrl.abort(), 30000) : null;
+            let data;
+            try {
+                const res = await fetch(direccionServidorPOS() + '/api/stock-almacenes?ids=' + ALMACEN_AXIS_PRINCIPAL_ID + ',' + ALMACEN_AXIS_CARLOS_ID, { cache: 'no-store', signal: ctrl ? ctrl.signal : undefined });
+                if(res.status === 404) throw new Error('el servidor es una versión vieja; instala la nueva (servidor_pedidos.ps1 actualizado)');
+                if(!res.ok) throw new Error('HTTP ' + res.status);
+                data = await res.json();
+            } finally {
+                if(temporizador) clearTimeout(temporizador);
+            }
+            if(!data || data.ok !== true || !Array.isArray(data.almacenes)) throw new Error((data && data.error) || 'respuesta inesperada del servidor');
+
+            const partes = [];
+            const dePrincipal = data.almacenes.find(a => Number(a.id) === ALMACEN_AXIS_PRINCIPAL_ID);
+            if(dePrincipal) {
+                const lista = cargarAlmacenPrincipal();
+                const r = aplicarFilasDeAxisALista(lista, dePrincipal.productos);
+                guardarAlmacenPrincipal(lista);
+                try { actualizarAlmacenPrincipalList(); } catch(e) {}
+                try { actualizarDashboard(); } catch(e) {}
+                partes.push('Almacén Principal: ' + r.actualizados + ' actualizados, ' + r.agregados + ' nuevos, ' + r.eliminados + ' eliminados');
+            }
+            const deCarlos = data.almacenes.find(a => Number(a.id) === ALMACEN_AXIS_CARLOS_ID);
+            if(deCarlos) {
+                const alm = obtenerAlmacenExtraCarlos();
+                const lista = cargarProductosAlmacenExtra(alm.id);
+                const r = aplicarFilasDeAxisALista(lista, deCarlos.productos);
+                guardarProductosAlmacenExtra(alm.id, lista);
+                try { if(typeof renderizarListaAlmacenesExtra === 'function') renderizarListaAlmacenesExtra(); } catch(e) {}
+                try { if(almacenExtraActualId === alm.id) actualizarAlmacenExtraList(); } catch(e) {}
+                partes.push(alm.nombre + ': ' + r.actualizados + ' actualizados, ' + r.agregados + ' nuevos, ' + r.eliminados + ' eliminados');
+            }
+            if(partes.length) mostrarMensajeComparacionPiso('✅ Traído de AxisPOS → ' + partes.join(' · '), 'success');
         }
 
         function aplicarStockServidorPOS(data, silencioso) {
