@@ -2332,10 +2332,11 @@
 
                 <div class="form-group">
                     <label>¿De dónde vas a pedir?</label>
-                    <div style="display:flex; gap:8px;">
-                        <button type="button" id="btnOrigenPedidoAlmacen" class="btn-destino-transf activo" onclick="elegirOrigenPedido('almacenPrincipal')" style="flex:1;">🏭 Almacén Principal</button>
-                        <button type="button" id="btnOrigenPedidoPuntoVenta" class="btn-destino-transf" onclick="elegirOrigenPedido('puntoVenta')" style="flex:1;">🏬 Almacén Punto de Venta</button>
+                    <div id="pedidoOrigenBotones" style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" id="btnOrigenPedidoAlmacen" class="btn-destino-transf activo" onclick="elegirOrigenPedido('almacenPrincipal')" style="flex:1; min-width:140px;">🏭 Almacén Principal</button>
+                        <button type="button" id="btnOrigenPedidoPuntoVenta" class="btn-destino-transf" onclick="elegirOrigenPedido('puntoVenta')" style="flex:1; min-width:140px;">🏬 Almacén Punto de Venta</button>
                     </div>
+                    <div id="axisMinMaxEstado" style="font-size:11.5px; color:#777; margin-top:6px; line-height:1.4;"></div>
                 </div>
 
                 <div class="button-group" style="margin-top: 6px;">
@@ -3941,6 +3942,9 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                 volverListaAlmacenesExtra();
             } else if(tabName === 'pedidos') {
                 pintarBotonServidorPOS('');
+                renderizarBotonesOrigenPedido();
+                pintarEstadoAxisMinMax();
+                actualizarMinMaxAxis(true);
                 // elegirOrigenPedido() ya renderiza el catálogo por su cuenta cuando el
                 // pedido en curso está vacío (el caso normal al entrar a la pestaña); si
                 // ya había productos agregados, no hace nada (no permite cambiar de
@@ -10040,14 +10044,174 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
         // Todos los ítems de un mismo pedido comparten origen, así que una vez que ya hay
         // productos agregados se bloquea el cambio (renderizarItemsPedidoNuevo deshabilita
         // los botones); esta función solo actúa cuando el pedido está vacío.
-        function elegirOrigenPedido(origen) {
-            if(pedidoNuevoItems.length > 0) return;
-            pedidoNuevoOrigen = origen;
+        // ===== MÍNIMO Y NORMAL (MÁXIMO) DE AXISPOS PARA LOS PEDIDOS =====
+        // El servidor de pedidos lee de AxisPOS el mínimo (MinQtty) y la cantidad normal (NormalQtty) de cada producto.
+        // Se guardan en el teléfono (sirven sin conexión) y se usan en Pedidos: colores, orden por urgencia y sugerencia
+        // de cuánto pedir (hasta la cantidad normal). Si un producto no tiene mínimo en AxisPOS se sigue usando el suyo.
+        const CLAVE_AXIS_MINMAX = 'axisMinMaxPedidos';
+        let axisMinMax = (function () { try { return JSON.parse(localStorage.getItem(CLAVE_AXIS_MINMAX)) || null; } catch(e) { return null; } })();
+        let axisMinMaxEnCurso = false;
 
+        function skuClaveAxis(sku) { return String(sku || '').trim().toUpperCase(); }
+
+        function minMaxAxisDe(sku) {
+            if(!axisMinMax || !sku) return null;
+            const k = skuClaveAxis(sku);
+            const mn = axisMinMax.minimos ? axisMinMax.minimos[k] : undefined;
+            const no = axisMinMax.normales ? axisMinMax.normales[k] : undefined;
+            if(!(mn > 0) && !(no > 0)) return null;
+            return { min: mn > 0 ? mn : null, normal: no > 0 ? no : null };
+        }
+
+        function pintarEstadoAxisMinMax(textoExtra, error) {
+            const el = document.getElementById('axisMinMaxEstado');
+            if(!el) return;
+            let html;
+            if(axisMinMax) {
+                const nMin = Object.keys(axisMinMax.minimos || {}).length;
+                const nNor = Object.keys(axisMinMax.normales || {}).length;
+                const hora = new Date(axisMinMax.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                html = `📊 AxisPOS: ${nMin} productos con mínimo · ${nNor} con cantidad normal · leído ${hora}`;
+                const avisos = [axisMinMax.errorMin, axisMinMax.errorNormal].filter(Boolean);
+                if(avisos.length) html += `<br><span style="color:#e67e22;">⚠️ ${escaparHtmlSimple(avisos.join(' | '))}</span>`;
+            } else {
+                html = '📊 Todavía no se ha leído el mínimo / normal de AxisPOS (conéctate al servidor y toca 🔄).';
+            }
+            if(textoExtra) html += `<br>${escaparHtmlSimple(textoExtra)}`;
+            if(error) html += `<br><span style="color:#d32f2f;">${escaparHtmlSimple(error)}</span>`;
+            html += ' <button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:11px;" onclick="actualizarMinMaxAxis(false)">🔄</button>';
+            el.innerHTML = html;
+        }
+
+        async function actualizarMinMaxAxis(silencioso) {
+            if(axisMinMaxEnCurso) return;
+            if(typeof direccionServidorPOS !== 'function' || !direccionServidorPOS()) { pintarEstadoAxisMinMax(); return; }
+            if(silencioso && axisMinMax && (Date.now() - axisMinMax.ts) < 10 * 60 * 1000) { pintarEstadoAxisMinMax(); return; }
+            axisMinMaxEnCurso = true;
+            pintarEstadoAxisMinMax('Leyendo mínimo y normal de AxisPOS...');
+            try {
+                const res = await fetchServidorPOS('/api/minmax-axis', !!silencioso);
+                const d = await res.json().catch(() => null);
+                if(!res.ok || !d || !d.ok) throw new Error((d && d.error) || ('HTTP ' + res.status));
+                const mins = {}, nors = {};
+                Object.keys(d.minimos || {}).forEach(k => { const v = Number(d.minimos[k]) || 0; if(v > 0) mins[skuClaveAxis(k)] = v; });
+                Object.keys(d.normales || {}).forEach(k => { const v = Number(d.normales[k]) || 0; if(v > 0) nors[skuClaveAxis(k)] = v; });
+                axisMinMax = { ts: Date.now(), minimos: mins, normales: nors, errorMin: d.errorMin || '', errorNormal: d.errorNormal || '' };
+                try { localStorage.setItem(CLAVE_AXIS_MINMAX, JSON.stringify(axisMinMax)); } catch(e2) {}
+                pintarEstadoAxisMinMax();
+                if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
+            } catch(e) {
+                pintarEstadoAxisMinMax('', silencioso ? '' : 'No se pudo leer de AxisPOS: ' + (e && e.message ? e.message : 'sin conexión con el servidor.'));
+            } finally {
+                axisMinMaxEnCurso = false;
+            }
+        }
+
+        // Mínimo que se usa para pintar y ordenar: el de AxisPOS si existe; si no, el propio del producto (o 10).
+        function minimoParaPedido(p, productoCatalogo) {
+            const ax = minMaxAxisDe((p && p.sku) || (productoCatalogo && productoCatalogo.sku));
+            if(ax && ax.min) return ax.min;
+            const pr = productoCatalogo || p;
+            return (pr && pr.stockMinimo !== undefined && pr.stockMinimo !== null) ? pr.stockMinimo : 10;
+        }
+
+        // Línea "Mín / Normal / Falta" de la tarjeta y botón para pedir justo lo que falta hasta la cantidad normal
+        // (sin pasar de lo que hay en el origen). actual = lo que hay ahora en el destino (piso, o si no hay dato, el
+        // Almacén Punto de Venta).
+        function construirLineaAxisPedido(p, productoCatalogo, actual, cantidadOrigen) {
+            const ax = minMaxAxisDe((p && p.sku) || (productoCatalogo && productoCatalogo.sku));
+            if(!ax) return '';
+            let txt = '📊 AxisPOS: ';
+            const partes = [];
+            if(ax.min) partes.push(`Mín <b>${ax.min}</b>`);
+            if(ax.normal) partes.push(`Normal <b>${ax.normal}</b>`);
+            txt += partes.join(' · ');
+            let boton = '';
+            if(ax.normal && actual !== null && actual !== undefined) {
+                const falta = Math.max(0, ax.normal - actual);
+                const sugerido = Math.min(falta, Math.max(0, Math.floor(cantidadOrigen || 0)));
+                if(falta > 0) {
+                    txt += ` · Falta <b>${falta}</b>`;
+                    if(sugerido > 0) boton = ` <button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:11.5px;" onclick="usarSugeridoPedido(${p.idx}, ${sugerido})">📥 Pedir ${sugerido}</button>`;
+                } else {
+                    txt += ' · ya está en lo normal';
+                }
+            }
+            return `<div style="font-size:11.5px; color:#555; margin-top:4px;">${txt}${boton}</div>`;
+        }
+
+        function usarSugeridoPedido(idx, cantidad) {
+            if(pedidoNuevoOrigen === 'almacenPrincipal') {
+                abrirModalTransferirAlmacenPrincipal(idx, 'pedido');
+                const inp = document.getElementById('transferirAlmPrincipalCantidad');
+                if(inp) inp.value = cantidad;
+                return;
+            }
+            const inp = document.getElementById('pedidoCantCard_' + idx);
+            if(inp) { inp.value = cantidad; inp.focus(); }
+        }
+
+        // ===== ORIGEN DEL PEDIDO: Almacén Principal, Almacén Punto de Venta o CUALQUIER otro almacén =====
+        // Los otros almacenes (los de "Otros almacenes") se eligen como origen con el valor extra_<id>.
+        function esOrigenExtraPedido(o) { return typeof o === 'string' && o.indexOf('extra_') === 0; }
+        function esOrigenListaPedido(o) { return o === 'almacenPrincipal' || esOrigenExtraPedido(o); }
+        function almacenExtraDePedido(o) {
+            if(!esOrigenExtraPedido(o)) return null;
+            return cargarAlmacenesExtra().find(a => String(a.id) === o.slice(6)) || null;
+        }
+        function origenPedidoValido(o) {
+            return o === 'almacenPrincipal' || o === 'puntoVenta' || !!almacenExtraDePedido(o);
+        }
+        function listaOrigenPedido(o) {
+            if(o === 'almacenPrincipal') return cargarAlmacenPrincipal();
+            if(esOrigenExtraPedido(o)) return cargarProductosAlmacenExtra(o.slice(6));
+            return cargarProductos();
+        }
+        function nombreOrigenPedido(o) {
+            if(o === 'almacenPrincipal') return 'Almacén Principal';
+            if(esOrigenExtraPedido(o)) { const a = almacenExtraDePedido(o); return a ? a.nombre : 'Otro almacén'; }
+            return 'Almacén Punto de Venta';
+        }
+        function etiquetaOrigenPedido(o) {
+            if(o === 'almacenPrincipal') return '🏭 Almacén Principal';
+            if(esOrigenExtraPedido(o)) { const a = almacenExtraDePedido(o); return a ? `${a.icono || '📦'} ${a.nombre}` : '📦 Otro almacén'; }
+            return '🏬 Almacén Punto de Venta';
+        }
+        function fraseOrigenPedido(o) {
+            if(o === 'almacenPrincipal') return 'el Almacén Principal';
+            if(esOrigenExtraPedido(o)) return 'el almacén "' + nombreOrigenPedido(o) + '"';
+            return 'el Almacén Punto de Venta';
+        }
+
+        // Botones de "¿De dónde vas a pedir?": los dos de siempre y uno por cada otro almacén.
+        function renderizarBotonesOrigenPedido() {
+            const cont = document.getElementById('pedidoOrigenBotones');
+            if(!cont) return;
+            Array.prototype.slice.call(cont.querySelectorAll('.btn-origen-extra')).forEach(b => b.remove());
+            cargarAlmacenesExtra().forEach(a => {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'btn-destino-transf btn-origen-extra';
+                b.style.cssText = 'flex:1; min-width:140px;';
+                b.setAttribute('data-origen', 'extra_' + a.id);
+                b.textContent = `${a.icono || '📦'} ${a.nombre}`;
+                b.onclick = function () { elegirOrigenPedido('extra_' + a.id); };
+                cont.appendChild(b);
+            });
             const btnAlm = document.getElementById('btnOrigenPedidoAlmacen');
             const btnPV = document.getElementById('btnOrigenPedidoPuntoVenta');
-            if(btnAlm) btnAlm.classList.toggle('activo', origen === 'almacenPrincipal');
-            if(btnPV) btnPV.classList.toggle('activo', origen === 'puntoVenta');
+            if(btnAlm) btnAlm.classList.toggle('activo', pedidoNuevoOrigen === 'almacenPrincipal');
+            if(btnPV) btnPV.classList.toggle('activo', pedidoNuevoOrigen === 'puntoVenta');
+            Array.prototype.slice.call(cont.querySelectorAll('.btn-origen-extra')).forEach(b => {
+                b.classList.toggle('activo', b.getAttribute('data-origen') === pedidoNuevoOrigen);
+            });
+        }
+
+        function elegirOrigenPedido(origen) {
+            if(pedidoNuevoItems.length > 0) { renderizarBotonesOrigenPedido(); return; }
+            if(!origenPedidoValido(origen)) origen = 'almacenPrincipal';
+            pedidoNuevoOrigen = origen;
+            renderizarBotonesOrigenPedido();
 
             const buscadorEl = document.getElementById('pedidoCatalogoBuscador');
             if(buscadorEl) buscadorEl.value = '';
@@ -10055,7 +10219,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
 
             // Agregar/editar/eliminar productos "a mano" solo tiene sentido para el
             // Almacén Principal: el catálogo del Punto de Venta se administra en la
-            // pestaña "Productos".
+            // pestaña "Productos" y los otros almacenes en "Otros almacenes".
             const btnAgregar = document.getElementById('btnAgregarProductoAlmacenPrincipalPedido');
             if(btnAgregar) btnAgregar.style.display = origen === 'almacenPrincipal' ? '' : 'none';
 
@@ -10099,9 +10263,10 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
             // aquí en vez de que cada tarjeta/comparación vuelva a leer y recorrer los
             // 680+ productos por su cuenta (eso era lo que ponía lenta esta pantalla,
             // sobre todo con "Ordenar por urgencia" activado).
-            const mapaProductosCatalogo = pedidoNuevoOrigen === 'almacenPrincipal' ? construirMapaProductosPorNombreYSku(cargarProductos()) : null;
+            const mapaProductosCatalogo = esOrigenListaPedido(pedidoNuevoOrigen) ? construirMapaProductosPorNombreYSku(cargarProductos()) : null;
+            const nombreOrigenCard = nombreOrigenPedido(pedidoNuevoOrigen);
 
-            const catalogoCompleto = (pedidoNuevoOrigen === 'almacenPrincipal' ? cargarAlmacenPrincipal() : cargarProductos())
+            const catalogoCompleto = listaOrigenPedido(pedidoNuevoOrigen)
                 .map((p, idx) => ({ ...p, idx }));
 
             let filtrados = q
@@ -10110,7 +10275,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
 
             if(ocultarSinExistencia) {
                 filtrados = filtrados.filter(p => {
-                    const cant = pedidoNuevoOrigen === 'almacenPrincipal' ? p.cantidad : (mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0);
+                    const cant = esOrigenListaPedido(pedidoNuevoOrigen) ? p.cantidad : (mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0);
                     return cant > 0;
                 });
             }
@@ -10155,8 +10320,9 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                 // El mínimo configurado es el del producto del catálogo (Almacén Punto de
                 // Venta); si se está armando desde Almacén Principal, p es el ítem de esa
                 // bodega y hay que buscar su producto correspondiente para tomar su mínimo.
-                const productoParaMinimo = pedidoNuevoOrigen === 'almacenPrincipal' ? obtenerProductoCatalogoPara(p, mapaProductosCatalogo) : p;
-                const minimoPiso = productoParaMinimo ? ((productoParaMinimo.stockMinimo === undefined || productoParaMinimo.stockMinimo === null) ? 10 : productoParaMinimo.stockMinimo) : 10;
+                const productoParaMinimo = esOrigenListaPedido(pedidoNuevoOrigen) ? obtenerProductoCatalogoPara(p, mapaProductosCatalogo) : p;
+                const minimoPiso = minimoParaPedido(p, productoParaMinimo);
+                let lineaAxis = '';
                 let pisoTexto;
                 if(piso === undefined) pisoTexto = '<span style="color:#bbb; font-size:11px;">Importa Excel del Punto de Venta</span>';
                 else if(piso === null) pisoTexto = '-';
@@ -10165,16 +10331,18 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                     pisoTexto = `<span style="${colorPiso ? `color:${colorPiso}; font-weight:600;` : ''}">${piso}</span>`;
                 }
 
-                if(pedidoNuevoOrigen === 'almacenPrincipal') {
+                if(esOrigenListaPedido(pedidoNuevoOrigen)) {
                     const stockPV = obtenerStockPuntoVentaPara(p, mapaStockPV, mapaProductosCatalogo);
                     cantidadOrigen = p.cantidad;
+                    lineaAxis = construirLineaAxisPedido(p, productoParaMinimo, (piso !== undefined && piso !== null) ? piso : stockPV, cantidadOrigen);
                     filasQty = `
-                        <div class="cmp-qty"><span class="cmp-qty-label">Almacén Principal</span><span class="cmp-qty-val">${p.cantidad}</span></div>
+                        <div class="cmp-qty"><span class="cmp-qty-label">${escaparHtmlSimple(nombreOrigenCard)}</span><span class="cmp-qty-val">${p.cantidad}</span></div>
                         <div class="cmp-qty"><span class="cmp-qty-label">Almacén Piso Venta</span><span class="cmp-qty-val">${stockPV === null ? '-' : stockPV}</span></div>
                         <div class="cmp-qty"><span class="cmp-qty-label">Piso de Venta</span><span class="cmp-qty-val">${pisoTexto}</span></div>
                     `;
                 } else {
                     cantidadOrigen = mapaStockPV.get(p.nombre.trim().toLowerCase()) || 0;
+                    lineaAxis = construirLineaAxisPedido(p, productoParaMinimo, (piso !== undefined && piso !== null) ? piso : null, cantidadOrigen);
                     filasQty = `
                         <div class="cmp-qty"><span class="cmp-qty-label">Almacén Punto de Venta</span><span class="cmp-qty-val">${cantidadOrigen}</span></div>
                         <div class="cmp-qty"><span class="cmp-qty-label">Piso de Venta</span><span class="cmp-qty-val">${pisoTexto}</span></div>
@@ -10184,7 +10352,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                 const enPedido = pedidoNuevoItems.filter(it => it.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase());
                 let notaEnPedido = '';
                 if(enPedido.length > 0) {
-                    const origenTxt = pedidoNuevoOrigen === 'almacenPrincipal' ? 'Almacén Principal' : 'Almacén Punto de Venta';
+                    const origenTxt = nombreOrigenCard;
                     const detalleDestinos = enPedido.length === 1
                         ? `${enPedido[0].cantidadPedida} (${enPedido[0].destino === 'pisoVenta' ? 'directo a Piso de Venta' : 'al Almacén Punto de Venta'})`
                         : enPedido.map(it => it.cantidadPedida + ' (' + (it.destino === 'pisoVenta' ? 'piso' : 'almacén') + ')').join(' + ');
@@ -10215,12 +10383,17 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                             <div class="cmp-card-nombre">${escaparHtmlSimple(p.nombre)}</div>
                         </div>
                         <div class="cmp-card-qtys">${filasQty}</div>
+                        ${lineaAxis}
                         ${notaEnPedido}
                         <div class="cmp-card-footer" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            ${pedidoNuevoOrigen === 'almacenPrincipal' ? '' : `
+                            ${pedidoNuevoOrigen === 'almacenPrincipal' ? '' : (esOrigenExtraPedido(pedidoNuevoOrigen) ? `
+                                <input type="number" min="1" step="1" inputmode="numeric" placeholder="Cant." id="pedidoCantCard_${p.idx}" style="max-width:90px;">
+                                <button type="button" class="btn-transferir" style="flex:1; min-width:110px;" onclick="agregarItemPedidoNuevoDesdeCard(${p.idx}, 'almacenPuntoVenta')">➕ Al Almacén PV</button>
+                                <button type="button" class="btn-transferir" style="flex:1; min-width:110px;" onclick="agregarItemPedidoNuevoDesdeCard(${p.idx}, 'pisoVenta')">➕ Directo al Piso</button>
+                            ` : `
                                 <input type="number" min="1" step="1" inputmode="numeric" placeholder="Cant." id="pedidoCantCard_${p.idx}" style="max-width:90px;">
                                 <button type="button" class="btn-transferir" style="flex:1; min-width:120px;" onclick="agregarItemPedidoNuevoDesdeCard(${p.idx})">➕ Agregar al pedido</button>
-                            `}
+                            `)}
                             ${accionesProducto}
                         </div>
                     </div>
@@ -10234,24 +10407,24 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
         // que importa es qué se está acabando donde se vende, no cuánto queda en la
         // bodega de la que se saca.
         function calcularUrgenciaPedido(p, mapaStockPV, mapaProductosCatalogo) {
-            if(pedidoNuevoOrigen === 'almacenPrincipal') {
-                // Desde Almacén Principal se puede ir a Almacén Punto de Venta o directo a
+            if(esOrigenListaPedido(pedidoNuevoOrigen)) {
+                // Desde un almacén (Principal u otro) se puede ir a Almacén Punto de Venta o directo a
                 // Piso de Venta (se elige por producto al armar el pedido), así que se toma
                 // el más urgente de los dos destinos posibles.
                 const productoDestino = obtenerProductoCatalogoPara(p, mapaProductosCatalogo);
-                const minimo = productoDestino ? ((productoDestino.stockMinimo === undefined || productoDestino.stockMinimo === null) ? 10 : productoDestino.stockMinimo) : 10;
+                const minimo = minimoParaPedido(p, productoDestino);
                 const stockPV = obtenerStockPuntoVentaPara(p, mapaStockPV, mapaProductosCatalogo);
                 const piso = obtenerPisoVentaPara(p);
                 const candidatos = [];
                 if(stockPV !== null) candidatos.push(stockPV - minimo);
                 if(piso !== undefined && piso !== null) candidatos.push(piso - minimo);
                 // Si el producto todavía no existe en el catálogo de Punto de Venta (sin
-                // dato de destino), se usa el propio stock del Almacén Principal como
+                // dato de destino), se usa el propio stock del almacén de origen como
                 // último recurso, para no dejarlo sin ordenar.
                 return candidatos.length > 0 ? Math.min(...candidatos) : p.cantidad;
             }
             // Desde Almacén Punto de Venta el destino siempre es el Piso de Venta.
-            const minimo = (p.stockMinimo === undefined || p.stockMinimo === null) ? 10 : p.stockMinimo;
+            const minimo = minimoParaPedido(p, p);
             const piso = obtenerPisoVentaPara(p);
             if(piso !== undefined && piso !== null) return piso - minimo;
             // Sin Excel del Punto de Venta importado en esta sesión no hay dato de Piso de
@@ -10292,8 +10465,8 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
         // origen (Almacén Principal o Almacén Punto de Venta), no dentro de los filtrados.
         // El destino se toma del interruptor "¿A dónde va cada producto...?" en ese
         // momento (para Almacén Punto de Venta como origen siempre es Piso de Venta).
-        function agregarItemPedidoNuevoDesdeCard(idx) {
-            const catalogo = pedidoNuevoOrigen === 'almacenPrincipal' ? cargarAlmacenPrincipal() : cargarProductos();
+        function agregarItemPedidoNuevoDesdeCard(idx, destinoElegido) {
+            const catalogo = listaOrigenPedido(pedidoNuevoOrigen);
             const p = catalogo[idx];
             if(!p) return;
 
@@ -10307,7 +10480,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
             // Esta función ahora solo se usa con origen "Almacén Punto de Venta" (el
             // Almacén Principal usa el modal "🎯 Elegir destino y agregar"), así que el
             // destino siempre es directo al Piso de Venta.
-            const destino = 'pisoVenta';
+            const destino = destinoElegido === 'almacenPuntoVenta' ? 'almacenPuntoVenta' : 'pisoVenta';
             const existente = pedidoNuevoItems.find(it => it.nombre.trim().toLowerCase() === p.nombre.trim().toLowerCase() && it.destino === destino);
             if(existente) {
                 existente.cantidadPedida += cantidad;
@@ -10315,7 +10488,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                 pedidoNuevoItems.push({ nombre: p.nombre, sku: p.sku || '', unidad: p.unidad || '', cantidadPedida: cantidad, destino });
             }
 
-            mostrarMensajePedidoNuevo(`✅ "${p.nombre}" agregado al pedido (directo al Piso de Venta).`, 'success');
+            mostrarMensajePedidoNuevo(`✅ "${p.nombre}" agregado al pedido (${destino === 'pisoVenta' ? 'directo al Piso de Venta' : 'al Almacén Punto de Venta'}).`, 'success');
             renderizarItemsPedidoNuevo();
             renderizarCatalogoPedidoNuevo();
         }
@@ -10330,8 +10503,8 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
         // Venta, según pedidoNuevoOrigen) para un producto por nombre — se usa para
         // calcular "lo que quedaría" mientras se arma el pedido, sin tocar el stock real.
         function obtenerCantidadOrigenPorNombre(nombre) {
-            if(pedidoNuevoOrigen === 'almacenPrincipal') {
-                const p = cargarAlmacenPrincipal().find(x => x.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
+            if(esOrigenListaPedido(pedidoNuevoOrigen)) {
+                const p = listaOrigenPedido(pedidoNuevoOrigen).find(x => x.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
                 return p ? p.cantidad : null;
             }
             return calcularStockProducto(nombre);
@@ -10465,7 +10638,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
         // porque un mismo pedido puede repartir productos entre el Almacén Punto de
         // Venta y el Piso de Venta. Aquí se resume para las cabeceras de las listas.
         function textoOrigenDestinoPedido(pedido) {
-            const origenTxt = pedido.origen === 'almacenPrincipal' ? '🏭 Almacén Principal' : '🏬 Almacén Punto de Venta';
+            const origenTxt = etiquetaOrigenPedido(pedido.origen);
             const destinos = new Set(pedido.items.map(it => it.destino || (pedido.origen === 'puntoVenta' ? 'pisoVenta' : 'almacenPuntoVenta')));
             let destinoTxt;
             if(destinos.size > 1) destinoTxt = '🏬🧍 Almacén Punto de Venta + Piso de Venta';
@@ -10615,10 +10788,10 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
             const pedidos = cargarPedidos();
             const pedido = pedidos.find(p => p.id === pedidoConfirmarId);
             if(!pedido) return;
-            const origenNombre = pedido.origen === 'almacenPrincipal' ? 'el Almacén Principal' : 'el Almacén Punto de Venta';
+            const origenNombre = fraseOrigenPedido(pedido.origen);
             const nombre = prompt(`Nombre exacto del producto que llegó (debe existir ya en ${origenNombre}):`);
             if(!nombre) return;
-            const origenLista = pedido.origen === 'almacenPrincipal' ? cargarAlmacenPrincipal() : cargarProductos();
+            const origenLista = listaOrigenPedido(pedido.origen);
             const p = origenLista.find(x => x.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
             if(!p) {
                 const msg = document.getElementById('mensajeConfirmarPedido');
@@ -10630,7 +10803,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
             if(!cantidad || cantidad <= 0) return;
 
             let destino = 'pisoVenta';
-            if(pedido.origen === 'almacenPrincipal') {
+            if(esOrigenListaPedido(pedido.origen)) {
                 destino = confirm(`¿"${p.nombre}" va directo al Piso de Venta?\n\nAceptar = Piso de Venta\nCancelar = Almacén Punto de Venta`) ? 'pisoVenta' : 'almacenPuntoVenta';
             }
 
@@ -10657,6 +10830,7 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
                 return;
             }
 
+            if(esOrigenExtraPedido(pedido.origen)) { registrarConfirmacionPedidoExtra(pedido, pedidos, itemsAConfirmar, msg); return; }
             const errores = [];
             if(pedido.origen === 'almacenPrincipal') {
                 const almacen = cargarAlmacenPrincipal();
@@ -10768,6 +10942,63 @@ t.sheetStubs=true}if(t.type=="array"){t.type="binary";var a=xk(e,t);t.type="arra
             if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
             renderizarResumenTransferenciasAlmacenPrincipal();
             renderizarResumenTransferenciasPiso();
+            renderizarResumenTransferenciasPedidos();
+
+            const discrepancias = itemsAConfirmar.filter(it => !it.esExtra && it.cantidadRecibida !== it.cantidadPedida);
+            let textoFinal = '✅ Transferencia registrada.';
+            if(discrepancias.length > 0) textoFinal += ` Hubo diferencias en ${discrepancias.length} producto(s) respecto a lo pedido.`;
+            mostrarMensaje(textoFinal, 'success');
+        }
+
+        // Confirma la recepción de un pedido cuyo origen es OTRO almacén (extra_<id>). Usa el mismo motor que la
+        // "Transferencia libre": resta del almacén de origen, suma en el Almacén Punto de Venta o en el Piso de Venta
+        // y deja el movimiento en el Historial. Es todo o nada: si algo no cuadra no se mueve nada.
+        function registrarConfirmacionPedidoExtra(pedido, pedidos, itemsAConfirmar, msg) {
+            const origen = pedido.origen;
+            const frase = fraseOrigenPedido(origen);
+            const existencias = obtenerItemsAlmacenTransferencia(origen);
+            const buscar = it => existencias.find(x => (it.sku && (x.sku || '').trim().toUpperCase() === it.sku.trim().toUpperCase()) || x.nombre.trim().toLowerCase() === it.nombre.trim().toLowerCase());
+            const errores = [];
+            if(!almacenExtraDePedido(origen)) errores.push('Ese almacén ya no existe en "Otros almacenes".');
+            itemsAConfirmar.forEach(it => {
+                const p = buscar(it);
+                if(!p) errores.push(`"${it.nombre}" ya no existe en ${frase}.`);
+                else if(it.cantidadRecibida > p.cantidad) errores.push(`Solo hay ${p.cantidad} de "${it.nombre}" en ${frase} (pusiste ${it.cantidadRecibida}).`);
+                if(it.destino === 'pisoVenta' && !buscarRegistroPisoVenta(it.nombre, it.sku)) errores.push(`"${it.nombre}" no tiene dato de Piso de Venta. Impórtalo primero en "Piso vs Almacén".`);
+            });
+            if(errores.length > 0) {
+                msg.innerHTML = `<div class="alert alert-error">${errores.join('<br>')}</div>`;
+                return;
+            }
+
+            itemsAConfirmar.forEach(it => {
+                const item = buscar(it);
+                const destino = it.destino === 'pisoVenta' ? 'pisoVenta' : 'puntoVenta';
+                restarStockEnAlmacenTransferencia(origen, item.nombre, it.cantidadRecibida);
+                let productoCatalogo = null;
+                if(destino === 'puntoVenta') productoCatalogo = sumarStockEnAlmacenTransferencia('puntoVenta', item, it.cantidadRecibida);
+                else ajustarPisoVentaTransferencia(item.nombre, item.sku, it.cantidadRecibida, origen);
+                registrarMovimientoTransferenciaGenerico(etiquetaAlmacenParaMovimiento(origen), item, it.cantidadRecibida, etiquetaAlmacenParaMovimiento(destino), productoCatalogo);
+            });
+
+            pedido.estado = 'confirmado';
+            pedido.fechaConfirmacion = new Date().toISOString();
+            pedido.items = itemsConfirmarPedido.map(it => ({ nombre: it.nombre, sku: it.sku, unidad: it.unidad, cantidadPedida: it.cantidadPedida, destino: it.destino, cantidadRecibida: it.cantidadRecibida }));
+            guardarPedidos(pedidos);
+
+            cerrarModalConfirmarPedido();
+            renderizarListaPedidos();
+            if(document.getElementById('catalogoPedidoNuevo')) renderizarCatalogoPedidoNuevo();
+            actualizarProductosList();
+            actualizarListadoProductos();
+            if(almacenExtraActualId && document.getElementById('tarjetasAlmacenExtra')) actualizarAlmacenExtraList();
+            renderizarListaAlmacenesExtra();
+            actualizarAlmacenPrincipalList();
+            actualizarDashboard();
+            actualizarHistorialEditable();
+            const contResumenPiso = document.getElementById('resumenComparacionPiso');
+            if(contResumenPiso) contResumenPiso.innerHTML = construirResumenComparacionPiso(resultadoComparacionPiso);
+            if(document.getElementById('listaComparacionPiso')) renderizarResultadoComparacion();
             renderizarResumenTransferenciasPedidos();
 
             const discrepancias = itemsAConfirmar.filter(it => !it.esExtra && it.cantidadRecibida !== it.cantidadPedida);
